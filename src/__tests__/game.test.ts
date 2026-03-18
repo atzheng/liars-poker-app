@@ -102,13 +102,13 @@ describe('decodeBid / encodeBid', () => {
   it('correct values for bid_id=0', () => {
     const { count, number } = decodeBid(0, cfg);
     expect(count).toBe(1);
-    expect(number).toBe(1);
+    expect(number).toBe(1);  // 1-indexed internally, matches Python
   });
 
   it('correct values for bid_id=max_bids-1', () => {
     const { count, number } = decodeBid(cfg.max_bids - 1, cfg);
     expect(count).toBe(cfg.num_players * cfg.hand_length);
-    expect(number).toBe(cfg.num_digits);
+    expect(number).toBe(cfg.num_digits);  // 1-indexed max
   });
 
   it('decode(encode(c,n)) == (c,n) for arbitrary (c,n)', () => {
@@ -130,7 +130,7 @@ describe('deal phase', () => {
       const player = i % cfg.num_players;
       const slot   = Math.floor(i / cfg.num_players);
       s = applyAction(s, cfg, dealActions[i]);
-      expect(s.hands[player][slot]).toBe(dealActions[i]);
+      expect(s.hands[player][slot]).toBe(dealActions[i] + 1);
     }
     expect(s.deal_step).toBe(cfg.total_cards);
     expect(isChanceNode(s, cfg)).toBe(false);
@@ -143,8 +143,8 @@ describe('deal phase', () => {
     for (const h of s.hands) {
       expect(h.length).toBe(cfg.hand_length);
       for (const d of h) {
-        expect(d).toBeGreaterThanOrEqual(0);
-        expect(d).toBeLessThan(cfg.num_digits);
+        expect(d).toBeGreaterThanOrEqual(1);
+        expect(d).toBeLessThanOrEqual(cfg.num_digits);
       }
     }
   });
@@ -203,7 +203,7 @@ describe('legalActionsMask', () => {
   });
 
   it('all actions false in terminal state', () => {
-    // P0=[1,1,2] P1=[2,0,1]: bid "2×2" (action=5) → 2 matches ≥ 2 → P0 wins after both challenge
+    // deal [1,2,1,0,2,1] → P0=[2,2,3], P1=[3,1,2]; bid "2×2" (action=5) → digit-2=3 ≥ 2 → P0 wins
     const s = applySequence(cfg, [1, 2, 1, 0, 2, 1, 5, 0, 0]);
     expect(isTerminal(s)).toBe(true);
     expect(legalActionsMask(s, cfg).every(v => !v)).toBe(true);
@@ -245,26 +245,26 @@ describe('applyAction – bid', () => {
 
 describe('applyAction – challenge', () => {
   const cfg = makeConfig(2, 3, 3);
-  // P0=[1,1,2], P1=[2,0,1]
-  // digit-1 total=3, digit-2 total=2, digit-3 total=0
-  const deal = [1, 2, 1, 0, 2, 1];
+  // deal [0,1,0,0,1,0] → P0=[1,1,2], P1=[2,1,1]
+  // digit-1 total=4, digit-2 total=2, digit-3 total=0
+  const deal = [0, 1, 0, 0, 1, 0];
 
   it('records challenge in challenge_history', () => {
     const s = dealWithActions(cfg, deal);
-    const s1 = applyAction(s, cfg, 5);   // P0 bids action 5 (2×2)
+    const s1 = applyAction(s, cfg, 5);   // P0 bids action 5 (bid_id=4: "2×2" internally)
     const s2 = applyAction(s1, cfg, 0);  // P1 challenges
     expect(s2.challenge_history[4][1]).toBe(1); // bid_id=4 (action 5 - 1), player=1
     expect(s2.num_challenges).toBe(1);
   });
 
-  it('bidder wins when matches >= count (P0 bids 2×2, total digit-2=2 ≥ 2)', () => {
+  it('bidder wins when matches >= count (P0 bids 2×2, digit-2=2 ≥ 2)', () => {
     const s = applySequence(cfg, [...deal, 5, 0, 0]); // deal, P0 bids 2×2, P1 ch, P0 ch
     expect(isTerminal(s)).toBe(true);
     expect(s.winner).toBe(0);
     expect(s.loser).toBe(-1);
   });
 
-  it('bidder loses when matches < count (P0 bids 3×2, total digit-2=2 < 3)', () => {
+  it('bidder loses when matches < count (P0 bids 3×2, digit-2=2 < 3)', () => {
     const s = applySequence(cfg, [...deal, 8, 0, 0]); // P0 bids 3×2 (action=8), P1 ch, P0 ch
     expect(isTerminal(s)).toBe(true);
     expect(s.loser).toBe(0);
@@ -299,7 +299,8 @@ describe('applyAction – challenge', () => {
 
 describe('getReturns', () => {
   const cfg = makeConfig(2, 3, 3);
-  const deal = [1, 2, 1, 0, 2, 1];
+  // deal [0,1,0,0,1,0] → P0=[1,1,2], P1=[2,1,1]; digit-2=2, digit-3=0
+  const deal = [0, 1, 0, 0, 1, 0];
 
   it('all zeros before terminal', () => {
     const s = dealWithActions(cfg, deal);
@@ -322,7 +323,7 @@ describe('getReturns', () => {
 
   it('P1 as originator: P1 wins → P1 gets +1, P0 gets -1', () => {
     // P0 bids low (action=1), P1 raises (action=4 = "2×1"), P0+P1 challenge → P1 wins
-    // P0=[2,0,0], P1=[1,2,1]: digit-1 (val=1): P0=0, P1=2 → total=2 ≥ 2 → P1 wins
+    // deal [2,1,0,2,0,1] → P0=[3,1,1], P1=[2,3,2]: digit-1: P0=2, P1=0 → total=2 ≥ 2 → P1 wins
     const deal2 = [2, 1, 0, 2, 0, 1];
     const s = applySequence(cfg, [...deal2, 1, 4, 0, 0]);
     const r = getReturns(s, cfg);
@@ -334,7 +335,7 @@ describe('getReturns', () => {
 
 describe('buildObservation', () => {
   const cfg = makeConfig(2, 3, 3);
-  const deal = [1, 2, 1, 0, 2, 1]; // P0=[1,1,2], P1=[2,0,1]
+  const deal = [0, 1, 0, 0, 1, 0]; // P0=[1,1,2], P1=[2,1,1]
 
   it('has correct length', () => {
     const s = dealWithActions(cfg, deal);
@@ -356,7 +357,7 @@ describe('buildObservation', () => {
     const obs1 = buildObservation(s, 1, cfg);
     // P0 hand starts at index 2 (after 2-element player one-hot)
     expect(Array.from(obs0.slice(2, 5))).toEqual([1, 1, 2]);
-    expect(Array.from(obs1.slice(2, 5))).toEqual([2, 0, 1]);
+    expect(Array.from(obs1.slice(2, 5))).toEqual([2, 1, 1]);
   });
 
   it('hand is zeros during the deal phase', () => {
@@ -465,11 +466,11 @@ function assertStateMatches(ts: GameState, py: FixtureState, label: string) {
   expect(ts.current_bid_action,  `${label} current_bid_action`).toBe(py.current_bid_action);
   expect(ts.num_challenges,      `${label} num_challenges`).toBe(py.num_challenges);
   expect(ts.is_rebid,            `${label} is_rebid`).toBe(py.is_rebid);
-  expect(ts.winner,              `${label} winner`).toBe(py.winner);
-  expect(ts.loser,               `${label} loser`).toBe(py.loser);
   expect(ts.hands,               `${label} hands`).toEqual(py.hands);
   expect(ts.bid_history,         `${label} bid_history`).toEqual(py.bid_history);
   expect(ts.challenge_history,   `${label} challenge_history`).toEqual(py.challenge_history);
+  expect(ts.winner,              `${label} winner`).toBe(py.winner);
+  expect(ts.loser,               `${label} loser`).toBe(py.loser);
 }
 
 function assertObsMatches(ts: GameState, py: Record<string, number[]>, label: string, tol = 1e-5) {

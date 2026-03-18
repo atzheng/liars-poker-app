@@ -3,10 +3,12 @@
  *
  * Key facts:
  *   - Action 0 = CHALLENGE; actions 1..max_bids = BIDs (1-indexed bid_id).
- *   - decode_bid(bid_id): number = bid_id % num_digits + 1,
+ *   - decode_bid(bid_id): number = bid_id % num_digits + 1  (1-indexed, matches Python)
  *                         count  = floor(bid_id / num_digits) + 1
+ *   - Chance actions: randint(0, num_digits) → stored as digit value 1..num_digits (action + 1)
+ *   - Matching: stored digit k == bid_number k, so display digit k for both hands and bids
+ *   - Undealt hand slots hold 0 (never counted; bid_number >= 1)
  *   - max_bids = hand_length * num_digits * num_players
- *   - Chance actions: randint(0, num_digits) → digit value 0..num_digits-1
  *   - bid_history[bid_id][player] = 1 when that player made that bid
  *   - challenge_history[bid_id][player] = 1 when that player challenged bid
  *   - winner/loser = -1 while game not over
@@ -60,13 +62,13 @@ export function isPlayerNode(state: GameState, config: GameConfig): boolean {
 // ---------------------------------------------------------------------------
 
 export function decodeBid(bidId: number, config: GameConfig): DecodedBid {
-  const number = (bidId % config.num_digits) + 1;
+  const number = (bidId % config.num_digits) + 1;  // 1-indexed internally, matches Python JAX
   const count  = Math.floor(bidId / config.num_digits) + 1;
   return { count, number };
 }
 
 export function encodeBid(count: number, number: number, config: GameConfig): number {
-  return (count - 1) * config.num_digits + (number - 1);
+  return (count - 1) * config.num_digits + (number - 1);  // number is 1-indexed
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +139,7 @@ export function applyAction(state: GameState, config: GameConfig, action: number
   if (chance) {
     const dealPlayer = deal_step % config.num_players;
     const dealSlot   = Math.floor(deal_step / config.num_players);
-    hands[dealPlayer][dealSlot] = action;
+    hands[dealPlayer][dealSlot] = action + 1; // store 1..num_digits so stored == bid_number
     deal_step += 1;
   }
 

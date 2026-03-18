@@ -69,4 +69,5 @@ export interface HistoryEntry {
   action: number;       // raw action id
   decodedBid?: DecodedBid;
   label: string;
+  policy?: number[];    // AI policy distribution at the time of action
 }

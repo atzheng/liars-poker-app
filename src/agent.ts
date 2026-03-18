@@ -15,15 +15,17 @@ import type { GameConfig, GameState, NetworkWeights } from './types';
 /**
  * Choose an action for the AI using the network policy.
  * Uses state.current_player as the acting player (supports multi-player).
+ * Returns both the sampled action and the full policy distribution.
  */
 export function chooseAiAction(
   state: GameState,
   config: GameConfig,
   weights: NetworkWeights,
-): number {
+  temperature = 1,
+): { action: number; policy: number[] } {
   const player = state.current_player;
   const obs    = buildObservation(state, player, config);
   const legal  = legalActionsMask(state, config);
-  const policy = networkForward(obs, legal, weights);
-  return sampleAction(policy);
+  const policy = networkForward(obs, legal, weights, temperature);
+  return { action: sampleAction(policy), policy: Array.from(policy) };
 }

@@ -73,7 +73,7 @@ export default function GameOver({ state, config, humanPlayer, record, onReplay,
                   <div
                     key={i}
                     className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow ${
-                      DIGIT_COLORS[digit % DIGIT_COLORS.length]
+                      DIGIT_COLORS[(digit - 1) % DIGIT_COLORS.length]
                     }`}
                   >
                     {digit}

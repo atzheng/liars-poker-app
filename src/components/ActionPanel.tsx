@@ -8,15 +8,16 @@ interface Props {
   aiThinking: boolean;
 }
 
-function getBidAction(count: number, digit: number, config: GameConfig): number {
-  return (count - 1) * config.num_digits + (digit - 1) + 1; // +1 for BID_ACTION_OFFSET
+// displayDigit is 1-indexed (matches stored hand digits and bid_number directly).
+function getBidAction(count: number, displayDigit: number, config: GameConfig): number {
+  return (count - 1) * config.num_digits + (displayDigit - 1) + 1; // +1 for BID_ACTION_OFFSET
 }
 
-function legalCountsForDigit(digit: number, legalMask: boolean[], config: GameConfig): number[] {
+function legalCountsForDigit(displayDigit: number, legalMask: boolean[], config: GameConfig): number[] {
   const maxCount = config.hand_length * config.num_players;
   const result: number[] = [];
   for (let c = 1; c <= maxCount; c++) {
-    const action = getBidAction(c, digit, config);
+    const action = getBidAction(c, displayDigit, config);
     if (action < legalMask.length && legalMask[action]) result.push(c);
   }
   return result;
@@ -44,7 +45,7 @@ export default function ActionPanel({ legalMask, config, onAction, aiThinking }:
   }
 
   const challengeLegal = legalMask.length > 0 && legalMask[0];
-  const digits = Array.from({ length: config.num_digits }, (_, i) => i + 1);
+  const digits = Array.from({ length: config.num_digits }, (_, i) => i + 1); // 1-indexed, matches stored hand digits
 
   return (
     <div className="p-3 space-y-3">

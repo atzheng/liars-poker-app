@@ -82,17 +82,22 @@ export function legalPolicy(logits: Float32Array, legal: boolean[]): Float32Arra
 // Full forward pass
 // ---------------------------------------------------------------------------
 
-/** Returns the policy distribution over all actions (legal actions only). */
+/** Returns the policy distribution over all actions (legal actions only).
+ *  temperature > 1 flattens the distribution; < 1 sharpens it toward greedy. */
 export function networkForward(
   obs: Float32Array,
   legal: boolean[],
   weights: NetworkWeights,
+  temperature = 1,
 ): Float32Array {
   let x = obs;
   for (const layer of weights.hidden) {
     x = relu(matmulAdd(x, layer));
   }
   const logits = matmulAdd(x, weights.logit);
+  if (temperature !== 1) {
+    for (let i = 0; i < logits.length; i++) logits[i] /= temperature;
+  }
   return legalPolicy(logits, legal);
 }
 

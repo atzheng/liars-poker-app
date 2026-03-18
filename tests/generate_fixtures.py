@@ -217,9 +217,9 @@ def build_network_fixtures(config_dict: dict, layers: list, config: LiarsPokerCo
 
     import jax.numpy as jnp
 
-    # Scenario: P0=[1,1,2] P1=[2,0,1], deal=[1,2,1,0,2,1]
-    # digit-1 total=3, digit-2 total=2
-    deal = [1, 2, 1, 0, 2, 1]
+    # Scenario: P0=[1,1,2] P1=[2,1,1], deal=[0,1,0,0,1,0]
+    # digit-1 total=4, digit-2 total=2, digit-3 total=0
+    deal = [0, 1, 0, 0, 1, 0]
     s = new_initial_state(config)
     for a in deal:
         s = apply_action(s, config, jnp.int32(a))
@@ -276,15 +276,15 @@ def main():
     }
 
     # ── Game scenarios ────────────────────────────────────────────────────
-    # Hands produced by these deal actions:
+    # Hands produced by these deal actions (JAX stores action+1, so action k → digit k+1):
     #   deal_step 0 → P0[0]=1, 1 → P1[0]=2, 2 → P0[1]=1
-    #   deal_step 3 → P1[1]=0, 4 → P0[2]=2, 5 → P1[2]=1
-    #   P0=[1,1,2]  P1=[2,0,1]
+    #   deal_step 3 → P1[1]=1, 4 → P0[2]=2, 5 → P1[2]=1
+    #   P0=[1,1,2]  P1=[2,1,1]
     # Digit counts (1-indexed bid numbers):
-    #   digit-1 (bid_number=1, hand_value=1): P0 has 2, P1 has 1 → total=3
+    #   digit-1 (bid_number=1, hand_value=1): P0 has 2, P1 has 2 → total=4
     #   digit-2 (bid_number=2, hand_value=2): P0 has 1, P1 has 1 → total=2
-    #   digit-3 (bid_number=3, hand_value=3): impossible (max hand val=2) → total=0
-    deal_a = [1, 2, 1, 0, 2, 1]   # P0=[1,1,2], P1=[2,0,1]
+    #   digit-3 (bid_number=3, hand_value=3): impossible → total=0
+    deal_a = [0, 1, 0, 0, 1, 0]   # P0=[1,1,2], P1=[2,1,1]
 
     # action encoding for 2p/3-card/3-digit:
     # bid_id = (count-1)*3 + (digit-1);  action = bid_id + 1
@@ -325,8 +325,8 @@ def main():
     # Instead: P0 bids low, P1 raises, P0 challenges → P1 is originator
     # P0 bids "1×1" (action=1), P1 bids "2×1" (action=4), P0 challenges (action=0),
     # P1 challenges (action=0) → terminal with "2×1" bid (count=2, digit-1, total=3 ≥ 2 → P1 wins)
-    deal_b = [2, 1, 0, 2, 0, 1]   # P0=[2,0,0], P1=[1,2,1]
-    # digit-1 (value=1): P0=0, P1=2 → total=2;  digit-2 (value=2): P0=1, P1=1 → total=2
+    deal_b = [2, 1, 0, 2, 0, 1]   # P0=[3,1,1], P1=[2,3,2]
+    # digit-1 (value=1): P0=2, P1=0 → total=2;  digit-2 (value=2): P0=0, P1=2 → total=2
     scenarios.append(
         build_scenario(config, deal_b, [
             {"name": "p1_is_originator_wins",

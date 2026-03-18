@@ -15,9 +15,14 @@ export interface WinRecord {
   draws: number;
 }
 
-function makeHistoryEntry(action: number, player: number, config: GameConfig): HistoryEntry {
+function makeHistoryEntry(
+  action: number,
+  player: number,
+  config: GameConfig,
+  policy?: number[],
+): HistoryEntry {
   if (action === CHALLENGE_ACTION) {
-    return { type: 'challenge', player, action, label: 'CHALLENGE!' };
+    return { type: 'challenge', player, action, label: 'CHALLENGE!', policy };
   }
   const bidId = action - 1;
   const decoded = decodeBid(bidId, config);
@@ -27,6 +32,7 @@ function makeHistoryEntry(action: number, player: number, config: GameConfig): H
     action,
     decodedBid: decoded,
     label: `${decoded.count} × ${decoded.number}`,
+    policy,
   };
 }
 
@@ -39,6 +45,7 @@ export default function App() {
   const [aiThinking, setAiThinking] = useState(false);
   const [humanPlayer, setHumanPlayer] = useState(1);
   const [record, setRecord] = useState<WinRecord>({ wins: 0, losses: 0, draws: 0 });
+  const [temperature, setTemperature] = useState(1);
 
   const aiScheduled = useRef(false);
 
@@ -59,11 +66,11 @@ export default function App() {
   }, [startGame]);
 
   const applyPlayerAction = useCallback(
-    (action: number) => {
+    (action: number, policy?: number[]) => {
       if (!gameState || !config) return;
       const legal = legalActionsMask(gameState, config);
       if (!legal[action]) return;
-      const entry = makeHistoryEntry(action, gameState.current_player, config);
+      const entry = makeHistoryEntry(action, gameState.current_player, config, policy);
       const next = applyAction(gameState, config, action);
       setGameState(next);
       setHistory(h => [...h, entry]);
@@ -92,8 +99,8 @@ export default function App() {
 
     const delay = 400 + Math.random() * 400;
     const timer = setTimeout(() => {
-      const action = chooseAiAction(gameState, config, weights);
-      applyPlayerAction(action);
+      const { action, policy } = chooseAiAction(gameState, config, weights, temperature);
+      applyPlayerAction(action, policy);
       setAiThinking(false);
       aiScheduled.current = false;
     }, delay);
@@ -152,6 +159,8 @@ export default function App() {
         aiThinking={aiThinking}
         humanPlayer={humanPlayer}
         record={record}
+        temperature={temperature}
+        onTemperatureChange={setTemperature}
         onAction={handleHumanAction}
       />
     );

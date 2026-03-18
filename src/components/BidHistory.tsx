@@ -1,11 +1,13 @@
-import React, { useEffect, useRef } from 'react';
-import type { HistoryEntry } from '../types';
+import React, { useEffect, useRef, useState } from 'react';
+import type { GameConfig, HistoryEntry } from '../types';
 import { CHALLENGE_ACTION } from '../game';
+import PolicyHeatmap from './PolicyHeatmap';
 
 interface Props {
   history: HistoryEntry[];
   humanPlayer: number;
   numPlayers: number;
+  config: GameConfig;
 }
 
 function playerName(player: number, humanPlayer: number, numPlayers: number): string {
@@ -14,8 +16,9 @@ function playerName(player: number, humanPlayer: number, numPlayers: number): st
   return `P${player}`;
 }
 
-export default function BidHistory({ history, humanPlayer, numPlayers }: Props) {
+export default function BidHistory({ history, humanPlayer, numPlayers, config }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -33,12 +36,15 @@ export default function BidHistory({ history, humanPlayer, numPlayers }: Props) 
     <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
       {history.map((entry, idx) => {
         const isHuman = entry.player === humanPlayer;
+        const isAi = !isHuman;
+        const hasPolicy = isAi && !!entry.policy;
+        const isExpanded = expandedIdx === idx;
+
         return (
-          <div
-            key={idx}
-            className={`flex ${isHuman ? 'justify-end' : 'justify-start'}`}
-          >
+          <div key={idx} className={`flex flex-col ${isHuman ? 'items-end' : 'items-start'}`}>
+            {/* Bubble */}
             <div
+              onClick={() => hasPolicy && setExpandedIdx(isExpanded ? null : idx)}
               className={`max-w-xs px-3 py-2 rounded-2xl text-sm font-medium shadow ${
                 entry.action === CHALLENGE_ACTION
                   ? isHuman
@@ -47,11 +53,29 @@ export default function BidHistory({ history, humanPlayer, numPlayers }: Props) 
                   : isHuman
                     ? 'bg-blue-600 text-white rounded-br-sm'
                     : 'bg-gray-700 text-gray-100 rounded-bl-sm'
-              }`}
+              } ${hasPolicy ? 'cursor-pointer hover:brightness-110 transition-[filter]' : ''}`}
             >
-              <span className="opacity-60 text-xs mr-1">{playerName(entry.player, humanPlayer, numPlayers)}:</span>
+              <span className="opacity-60 text-xs mr-1">
+                {playerName(entry.player, humanPlayer, numPlayers)}:
+              </span>
               {entry.label}
+              {hasPolicy && (
+                <span className="ml-1.5 opacity-40 text-xs">
+                  {isExpanded ? '▲' : '▼'}
+                </span>
+              )}
             </div>
+
+            {/* Inline policy heatmap */}
+            {isExpanded && entry.policy && (
+              <div className="max-w-xs w-full mt-0.5">
+                <PolicyHeatmap
+                  policy={entry.policy}
+                  takenAction={entry.action}
+                  config={config}
+                />
+              </div>
+            )}
           </div>
         );
       })}

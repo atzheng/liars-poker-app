@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { GameState, GameConfig, NetworkWeights, HistoryEntry } from '../types';
 import { legalActionsMask } from '../game';
 import type { WinRecord } from '../App';
@@ -13,6 +13,8 @@ interface Props {
   aiThinking: boolean;
   humanPlayer: number;
   record: WinRecord;
+  temperature: number;
+  onTemperatureChange: (t: number) => void;
   onAction: (action: number) => void;
 }
 
@@ -33,7 +35,7 @@ function DigitTile({ digit, faceDown = false }: { digit: number; faceDown?: bool
   return (
     <div
       className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow select-none ${
-        DIGIT_COLORS[digit % DIGIT_COLORS.length]
+        DIGIT_COLORS[(digit - 1) % DIGIT_COLORS.length]
       }`}
     >
       {digit}
@@ -50,7 +52,7 @@ function HandDisplay({
 }: {
   hand: number[];
   faceDown: boolean;
-  label: string;
+  label: React.ReactNode;
   labelColor: string;
   isActive: boolean;
 }) {
@@ -73,14 +75,15 @@ function HandDisplay({
   );
 }
 
-export default function GameBoard({ state, config, history, aiThinking, humanPlayer, record, onAction }: Props) {
+export default function GameBoard({ state, config, history, aiThinking, humanPlayer, record, temperature, onTemperatureChange, onAction }: Props) {
   const humanTurn = state.current_player === humanPlayer && !aiThinking;
   const legalMask = humanTurn ? legalActionsMask(state, config) : [];
+  const [showAiHand, setShowAiHand] = useState(false);
 
   const currentBidLabel = (() => {
     if (state.current_bid_action < 0) return 'No bid yet';
     const bidId = state.current_bid_action - 1;
-    const number = (bidId % config.num_digits) + 1;
+    const number = (bidId % config.num_digits) + 1;  // 1-indexed internally
     const count  = Math.floor(bidId / config.num_digits) + 1;
     return `${count} × ${number}`;
   })();
@@ -103,16 +106,41 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
               {recordStr}
             </span>
           )}
+          <label className="flex items-center gap-1 text-gray-500">
+            <span>T</span>
+            <input
+              type="number"
+              min={0.1}
+              max={10}
+              step={0.1}
+              value={temperature}
+              onChange={e => {
+                const v = parseFloat(e.target.value);
+                if (v > 0) onTemperatureChange(v);
+              }}
+              className="w-14 bg-gray-700 text-gray-200 rounded px-1.5 py-0.5 text-xs text-right border border-gray-600 focus:border-blue-400 focus:outline-none"
+            />
+          </label>
         </div>
       </div>
 
-      {/* AI/other player hands (face-down) */}
+      {/* AI/other player hands */}
       {otherPlayers.map(p => (
         <div key={p} className="bg-gray-800/50 border-b border-gray-700">
           <HandDisplay
             hand={state.hands[p]}
-            faceDown={true}
-            label={config.num_players === 2 ? 'AI' : `Player ${p}`}
+            faceDown={!showAiHand}
+            label={
+              <span className="flex items-center gap-2">
+                {config.num_players === 2 ? 'AI' : `Player ${p}`}
+                <button
+                  onClick={() => setShowAiHand(v => !v)}
+                  className="text-xs px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-gray-200 transition-colors font-normal"
+                >
+                  {showAiHand ? 'hide' : 'show'}
+                </button>
+              </span>
+            }
             labelColor="text-purple-400"
             isActive={aiThinking && state.current_player === p}
           />
@@ -126,7 +154,7 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
       </div>
 
       {/* Bid history */}
-      <BidHistory history={history} humanPlayer={humanPlayer} numPlayers={config.num_players} />
+      <BidHistory history={history} humanPlayer={humanPlayer} numPlayers={config.num_players} config={config} />
 
       {/* Human hand */}
       <div className="bg-gray-800/50 border-t border-gray-700">
