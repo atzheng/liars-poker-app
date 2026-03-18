@@ -2,6 +2,10 @@ import React, { useCallback, useState } from 'react';
 import { loadCheckpointBytes, loadCheckpointJson, buildGameConfig } from '../checkpoint';
 import type { CheckpointData } from '../checkpoint';
 
+const BUILT_IN_AGENTS: { name: string; description: string; path: string }[] = [
+  { name: '3×3', description: '3 players · 3 cards', path: '/agents/3x3.msgpack' },
+];
+
 interface Props {
   onLoad: (data: CheckpointData, humanPlayer: number) => void;
 }
@@ -19,6 +23,28 @@ export default function UploadScreen({ onLoad }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [parsed, setParsed] = useState<ParsedCheckpoint | null>(null);
+
+  const handlePreset = useCallback(async (path: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      const data = loadCheckpointBytes(buf);
+      setParsed({
+        data,
+        numPlayers: data.config.num_players,
+        handLength: data.config.hand_length,
+        numDigits: data.config.num_digits,
+        humanPlayer: 1,
+      });
+    } catch (e) {
+      setError(`Failed to load agent: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const handleFile = useCallback(async (file: File) => {
     setLoading(true);
@@ -173,6 +199,29 @@ export default function UploadScreen({ onLoad }: Props) {
         <p className="text-gray-400 mb-8 text-sm">
           Play against a trained RNaD agent in your browser.
         </p>
+
+        <div className="mb-6">
+          <p className="text-gray-400 text-sm mb-3 text-left">Choose an agent</p>
+          <div className="flex flex-col gap-2">
+            {BUILT_IN_AGENTS.map(agent => (
+              <button
+                key={agent.path}
+                onClick={() => handlePreset(agent.path)}
+                disabled={loading}
+                className="flex items-center justify-between px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl text-left transition-colors disabled:opacity-50"
+              >
+                <span className="text-white font-medium">{agent.name}</span>
+                <span className="text-gray-400 text-sm">{agent.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex-1 h-px bg-gray-700" />
+          <span className="text-gray-500 text-xs">or upload your own</span>
+          <div className="flex-1 h-px bg-gray-700" />
+        </div>
 
         <label
           onDragOver={e => { e.preventDefault(); setDragging(true); }}
