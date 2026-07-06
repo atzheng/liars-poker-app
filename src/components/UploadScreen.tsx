@@ -13,6 +13,7 @@ const DEFAULT_SERVER_URL = 'http://localhost:8000';
 interface Props {
   onLoad: (data: CheckpointData, humanPlayer: number) => void;
   onConnectServer: (config: GameConfig, humanPlayer: number, url: string) => void;
+  onOpenExplorer: (config: GameConfig, url: string, label: string) => void;
 }
 
 interface ParsedCheckpoint {
@@ -25,7 +26,7 @@ interface ParsedCheckpoint {
   humanPlayer: number;
 }
 
-export default function UploadScreen({ onLoad, onConnectServer }: Props) {
+export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }: Props) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -133,6 +134,12 @@ export default function UploadScreen({ onLoad, onConnectServer }: Props) {
     }
   }, [parsed, onLoad, onConnectServer]);
 
+  const handleExplorer = useCallback(() => {
+    if (!parsed || !parsed.serverUrl) return;
+    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits);
+    onOpenExplorer(config, parsed.serverUrl, parsed.serverInfo ?? parsed.serverUrl);
+  }, [parsed, onOpenExplorer]);
+
   if (parsed) {
     const isServer = !!parsed.serverUrl;
     const playerLabels = Array.from({ length: parsed.numPlayers }, (_, i) =>
@@ -239,6 +246,15 @@ export default function UploadScreen({ onLoad, onConnectServer }: Props) {
               Start Game
             </button>
           </div>
+
+          {isServer && (
+            <button
+              onClick={handleExplorer}
+              className="w-full mt-3 py-2 rounded-lg bg-purple-700 text-white hover:bg-purple-600 transition-colors font-medium"
+            >
+              Policy Explorer (analysis)
+            </button>
+          )}
         </div>
       </div>
     );

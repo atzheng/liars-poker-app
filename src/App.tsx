@@ -6,8 +6,9 @@ import { chooseAiAction } from './agent';
 import { chooseServerAction } from './serverAgent';
 import UploadScreen from './components/UploadScreen';
 import GameBoard from './components/GameBoard';
+import PolicyExplorer from './components/PolicyExplorer';
 
-type Phase = 'upload' | 'game';
+type Phase = 'upload' | 'game' | 'explorer';
 
 export interface WinRecord {
   wins: number;
@@ -50,6 +51,7 @@ export default function App() {
   const [record, setRecord] = useState<WinRecord>({ wins: 0, losses: 0, draws: 0 });
   const [temperature, setTemperature] = useState(1);
   const [policyThreshold, setPolicyThreshold] = useState(0);
+  const [explorerLabel, setExplorerLabel] = useState<string>('');
 
   const aiScheduled = useRef(false);
 
@@ -77,6 +79,14 @@ export default function App() {
   const handleConnectServer = useCallback((cfg: GameConfig, hp: number, url: string) => {
     startGame(cfg, null, hp, url);
   }, [startGame]);
+
+  const handleOpenExplorer = useCallback((cfg: GameConfig, url: string, label: string) => {
+    setConfig(cfg);
+    setServerUrl(url);
+    setWeights(null);
+    setExplorerLabel(label);
+    setPhase('explorer');
+  }, []);
 
   const applyPlayerAction = useCallback(
     (action: number, policy?: number[]) => {
@@ -167,7 +177,24 @@ export default function App() {
   }, [gameState, phase, humanPlayer, config]);
 
   if (phase === 'upload') {
-    return <UploadScreen onLoad={handleLoad} onConnectServer={handleConnectServer} />;
+    return (
+      <UploadScreen
+        onLoad={handleLoad}
+        onConnectServer={handleConnectServer}
+        onOpenExplorer={handleOpenExplorer}
+      />
+    );
+  }
+
+  if (phase === 'explorer' && config && serverUrl) {
+    return (
+      <PolicyExplorer
+        config={config}
+        serverUrl={serverUrl}
+        serverLabel={explorerLabel}
+        onBack={() => setPhase('upload')}
+      />
+    );
   }
 
   if (phase === 'game' && gameState && config && (weights || serverUrl)) {

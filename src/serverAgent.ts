@@ -43,6 +43,12 @@ export async function fetchServerConfig(baseUrl: string): Promise<ServerInfo> {
 export interface ServerMove {
   action: number;
   policy: number[];
+  /** Value head estimate for the acting player (present in newer servers). */
+  value?: number;
+  /** Legal-action mask as computed server-side (present in newer servers). */
+  legal?: boolean[];
+  /** Seat the server observed from (== current_player). */
+  observer?: number;
 }
 
 /**
