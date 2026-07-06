@@ -1,28 +1,61 @@
 import React, { useCallback, useState } from 'react';
 import { loadCheckpointBytes, loadCheckpointJson, buildGameConfig } from '../checkpoint';
 import type { CheckpointData } from '../checkpoint';
+import type { GameConfig } from '../types';
+import { fetchServerConfig } from '../serverAgent';
 
 const BUILT_IN_AGENTS: { name: string; description: string; path: string }[] = [
   { name: '3×3', description: '3 players · 3 cards', path: '/agents/3x3.msgpack' },
 ];
 
+const DEFAULT_SERVER_URL = 'http://localhost:8000';
+
 interface Props {
   onLoad: (data: CheckpointData, humanPlayer: number) => void;
+  onConnectServer: (config: GameConfig, humanPlayer: number, url: string) => void;
 }
 
 interface ParsedCheckpoint {
-  data: CheckpointData;
+  data: CheckpointData | null;   // null in server mode
+  serverUrl?: string;            // set → Transformer AI (server) mode
+  serverInfo?: string;           // description of the loaded server checkpoint
   numPlayers: number;
   handLength: number;
   numDigits: number;
   humanPlayer: number;
 }
 
-export default function UploadScreen({ onLoad }: Props) {
+export default function UploadScreen({ onLoad, onConnectServer }: Props) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [parsed, setParsed] = useState<ParsedCheckpoint | null>(null);
+  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
+
+  const handleConnect = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const info = await fetchServerConfig(serverUrl);
+      setParsed({
+        data: null,
+        serverUrl,
+        serverInfo: `${info.network_type} · ${info.checkpoint}`,
+        numPlayers: info.config.num_players,
+        handLength: info.config.hand_length,
+        numDigits: info.config.num_digits,
+        humanPlayer: 1,
+      });
+    } catch (e) {
+      setError(
+        `Could not reach transformer server at ${serverUrl}: ` +
+        `${e instanceof Error ? e.message : String(e)}. ` +
+        `Is serve_agent.py running?`,
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [serverUrl]);
 
   const handlePreset = useCallback(async (path: string) => {
     setLoading(true);
@@ -93,10 +126,15 @@ export default function UploadScreen({ onLoad }: Props) {
   const handleStart = useCallback(() => {
     if (!parsed) return;
     const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits);
-    onLoad({ ...parsed.data, config }, parsed.humanPlayer);
-  }, [parsed, onLoad]);
+    if (parsed.serverUrl) {
+      onConnectServer(config, parsed.humanPlayer, parsed.serverUrl);
+    } else if (parsed.data) {
+      onLoad({ ...parsed.data, config }, parsed.humanPlayer);
+    }
+  }, [parsed, onLoad, onConnectServer]);
 
   if (parsed) {
+    const isServer = !!parsed.serverUrl;
     const playerLabels = Array.from({ length: parsed.numPlayers }, (_, i) =>
       i === 0 ? 'P0 (first mover)' : `P${i}`,
     );
@@ -105,7 +143,9 @@ export default function UploadScreen({ onLoad }: Props) {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
         <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <h1 className="text-3xl font-bold text-white mb-1 text-center">Liar's Poker AI</h1>
-          <p className="text-gray-400 mb-6 text-sm text-center">Configure game parameters</p>
+          <p className="text-gray-400 mb-6 text-sm text-center">
+            {isServer ? 'Transformer AI (server) — dims fixed by checkpoint' : 'Configure game parameters'}
+          </p>
 
           <div className="space-y-4 mb-6">
             <div>
@@ -115,12 +155,13 @@ export default function UploadScreen({ onLoad }: Props) {
                 min={2}
                 max={6}
                 value={parsed.numPlayers}
+                disabled={isServer}
                 onChange={e => setParsed(p => {
                   if (!p) return p;
                   const n = Math.max(2, parseInt(e.target.value) || 2);
                   return { ...p, numPlayers: n, humanPlayer: Math.min(p.humanPlayer, n - 1) };
                 })}
-                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none"
+                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none disabled:opacity-50"
               />
             </div>
             <div>
@@ -130,8 +171,9 @@ export default function UploadScreen({ onLoad }: Props) {
                 min={1}
                 max={10}
                 value={parsed.handLength}
+                disabled={isServer}
                 onChange={e => setParsed(p => p && ({ ...p, handLength: Math.max(1, parseInt(e.target.value) || 1) }))}
-                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none"
+                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none disabled:opacity-50"
               />
             </div>
             <div>
@@ -141,8 +183,9 @@ export default function UploadScreen({ onLoad }: Props) {
                 min={2}
                 max={10}
                 value={parsed.numDigits}
+                disabled={isServer}
                 onChange={e => setParsed(p => p && ({ ...p, numDigits: Math.max(2, parseInt(e.target.value) || 2) }))}
-                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none"
+                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none disabled:opacity-50"
               />
             </div>
             <div>
@@ -166,11 +209,20 @@ export default function UploadScreen({ onLoad }: Props) {
           </div>
 
           <div className="bg-gray-700/50 rounded-lg p-3 mb-6 text-xs text-gray-400 space-y-1">
-            <p className="font-medium text-gray-300">Detected from checkpoint:</p>
-            <p>
-              {parsed.data.config.num_players}p · {parsed.data.config.hand_length} cards ·{' '}
-              {parsed.data.config.num_digits} digits · {parsed.data.weights.numLayers} hidden layers
+            <p className="font-medium text-gray-300">
+              {isServer ? 'Transformer server:' : 'Detected from checkpoint:'}
             </p>
+            {isServer ? (
+              <p>
+                {parsed.numPlayers}p · {parsed.handLength} cards · {parsed.numDigits} digits ·{' '}
+                {parsed.serverInfo} @ {parsed.serverUrl}
+              </p>
+            ) : (
+              <p>
+                {parsed.data!.config.num_players}p · {parsed.data!.config.hand_length} cards ·{' '}
+                {parsed.data!.config.num_digits} digits · {parsed.data!.weights.numLayers} hidden layers
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3">
@@ -199,6 +251,35 @@ export default function UploadScreen({ onLoad }: Props) {
         <p className="text-gray-400 mb-8 text-sm">
           Play against a trained RNaD agent in your browser.
         </p>
+
+        <div className="mb-6">
+          <p className="text-gray-400 text-sm mb-3 text-left">Play the transformer (server)</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={serverUrl}
+              onChange={e => setServerUrl(e.target.value)}
+              placeholder="http://localhost:8000"
+              className="flex-1 bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-purple-400 focus:outline-none text-sm"
+            />
+            <button
+              onClick={handleConnect}
+              disabled={loading}
+              className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition-colors font-medium text-sm disabled:opacity-50"
+            >
+              {loading ? '…' : 'Connect'}
+            </button>
+          </div>
+          <p className="text-gray-600 text-xs mt-2 text-left">
+            Runs the real lpt agent via <code className="bg-gray-700 px-1 rounded">serve_agent.py</code>.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex-1 h-px bg-gray-700" />
+          <span className="text-gray-500 text-xs">or in-browser MLP</span>
+          <div className="flex-1 h-px bg-gray-700" />
+        </div>
 
         <div className="mb-6">
           <p className="text-gray-400 text-sm mb-3 text-left">Choose an agent</p>

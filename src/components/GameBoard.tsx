@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { GameState, GameConfig, NetworkWeights, HistoryEntry } from '../types';
-import { legalActionsMask } from '../game';
+import { getReturns, isTerminal, legalActionsMask } from '../game';
 import type { WinRecord } from '../App';
 import BidHistory from './BidHistory';
 import ActionPanel from './ActionPanel';
@@ -8,14 +8,19 @@ import ActionPanel from './ActionPanel';
 interface Props {
   state: GameState;
   config: GameConfig;
-  weights: NetworkWeights;
+  weights: NetworkWeights | null;
+  agentLabel?: string;
   history: HistoryEntry[];
   aiThinking: boolean;
   humanPlayer: number;
   record: WinRecord;
   temperature: number;
   onTemperatureChange: (t: number) => void;
+  policyThreshold: number;
+  onPolicyThresholdChange: (t: number) => void;
   onAction: (action: number) => void;
+  onReplay: () => void;
+  onNewCheckpoint: () => void;
 }
 
 const DIGIT_COLORS = [
@@ -75,8 +80,59 @@ function HandDisplay({
   );
 }
 
-export default function GameBoard({ state, config, history, aiThinking, humanPlayer, record, temperature, onTemperatureChange, onAction }: Props) {
-  const humanTurn = state.current_player === humanPlayer && !aiThinking;
+function GameOverResults({ state, config, humanPlayer, record, onReplay, onNewCheckpoint }: {
+  state: GameState; config: GameConfig; humanPlayer: number; record: WinRecord; onReplay: () => void; onNewCheckpoint: () => void;
+}) {
+  const rewards = getReturns(state, config);
+  const humanWon = rewards[humanPlayer] > 0;
+  const humanLost = rewards[humanPlayer] < 0;
+  const total = record.wins + record.losses + record.draws;
+  const winPct = total > 0 ? Math.round((record.wins / total) * 100) : 0;
+
+  return (
+    <div className="border-t border-gray-700 bg-gray-800/60 px-4 py-4 space-y-3">
+      {/* Result banner */}
+      <div className={`text-center p-3 rounded-xl ${
+        humanWon ? 'bg-green-900/50 border border-green-700' : humanLost ? 'bg-red-900/50 border border-red-700' : 'bg-gray-700/50 border border-gray-600'
+      }`}>
+        <div className="text-2xl mb-1">{humanWon ? '🎉' : humanLost ? '😔' : '🤝'}</div>
+        <h2 className={`text-lg font-bold ${humanWon ? 'text-green-300' : humanLost ? 'text-red-300' : 'text-gray-300'}`}>
+          {humanWon ? 'You Win!' : humanLost ? 'AI Wins!' : 'Draw'}
+        </h2>
+        <p className="text-gray-400 text-xs mt-1">
+          Score: {rewards[humanPlayer] > 0 ? '+' : ''}{rewards[humanPlayer]}
+        </p>
+      </div>
+
+      {/* Win record */}
+      {total > 0 && (
+        <div className="px-3 py-2 bg-gray-700/50 rounded-xl flex items-center justify-between">
+          <span className="text-xs text-gray-400 font-medium">Session record</span>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-green-400 font-bold">{record.wins}W</span>
+            <span className="text-red-400 font-bold">{record.losses}L</span>
+            {record.draws > 0 && <span className="text-gray-400 font-bold">{record.draws}D</span>}
+            <span className="text-gray-500 text-xs">({winPct}%)</span>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex gap-3 pt-1">
+        <button onClick={onReplay} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-colors text-sm">
+          Play Again
+        </button>
+        <button onClick={onNewCheckpoint} className="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium rounded-xl transition-colors text-sm">
+          New Checkpoint
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function GameBoard({ state, config, agentLabel, history, aiThinking, humanPlayer, record, temperature, onTemperatureChange, policyThreshold, onPolicyThresholdChange, onAction, onReplay, onNewCheckpoint }: Props) {
+  const gameOver = isTerminal(state);
+  const humanTurn = !gameOver && state.current_player === humanPlayer && !aiThinking;
   const legalMask = humanTurn ? legalActionsMask(state, config) : [];
   const [showAiHand, setShowAiHand] = useState(false);
 
@@ -98,7 +154,10 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
     <div className="min-h-screen bg-gray-900 flex flex-col max-w-md mx-auto">
       {/* Header */}
       <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-        <h1 className="text-white font-bold text-sm">Liar's Poker</h1>
+        <h1 className="text-white font-bold text-sm">
+          Liar's Poker
+          {agentLabel && <span className="ml-2 text-purple-300 font-normal">· {agentLabel}</span>}
+        </h1>
         <div className="flex items-center gap-3 text-xs text-gray-400">
           <span>{config.num_players}P · {config.hand_length} cards · {config.num_digits} digits</span>
           {total > 0 && (
@@ -121,6 +180,21 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
               className="w-14 bg-gray-700 text-gray-200 rounded px-1.5 py-0.5 text-xs text-right border border-gray-600 focus:border-blue-400 focus:outline-none"
             />
           </label>
+          <label className="flex items-center gap-1 text-gray-500">
+            <span>min%</span>
+            <input
+              type="number"
+              min={0}
+              max={50}
+              step={1}
+              value={Math.round(policyThreshold * 100)}
+              onChange={e => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v) && v >= 0) onPolicyThresholdChange(v / 100);
+              }}
+              className="w-12 bg-gray-700 text-gray-200 rounded px-1.5 py-0.5 text-xs text-right border border-gray-600 focus:border-blue-400 focus:outline-none"
+            />
+          </label>
         </div>
       </div>
 
@@ -129,7 +203,7 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
         <div key={p} className="bg-gray-800/50 border-b border-gray-700">
           <HandDisplay
             hand={state.hands[p]}
-            faceDown={!showAiHand}
+            faceDown={!showAiHand && !gameOver}
             label={
               <span className="flex items-center gap-2">
                 {config.num_players === 2 ? 'AI' : `Player ${p}`}
@@ -156,6 +230,9 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
       {/* Bid history */}
       <BidHistory history={history} humanPlayer={humanPlayer} numPlayers={config.num_players} config={config} />
 
+      {/* Game over results (inline below history) */}
+      {gameOver && <GameOverResults state={state} config={config} humanPlayer={humanPlayer} record={record} onReplay={onReplay} onNewCheckpoint={onNewCheckpoint} />}
+
       {/* Human hand */}
       <div className="bg-gray-800/50 border-t border-gray-700">
         <HandDisplay
@@ -167,24 +244,26 @@ export default function GameBoard({ state, config, history, aiThinking, humanPla
         />
       </div>
 
-      {/* Action panel */}
-      <div className="bg-gray-800 border-t border-gray-700">
-        {humanTurn ? (
-          <ActionPanel
-            legalMask={legalMask}
-            config={config}
-            onAction={onAction}
-            aiThinking={false}
-          />
-        ) : (
-          <ActionPanel
-            legalMask={[]}
-            config={config}
-            onAction={() => {}}
-            aiThinking={aiThinking || state.current_player !== humanPlayer}
-          />
-        )}
-      </div>
+      {/* Action panel (hidden when game is over) */}
+      {!gameOver && (
+        <div className="bg-gray-800 border-t border-gray-700">
+          {humanTurn ? (
+            <ActionPanel
+              legalMask={legalMask}
+              config={config}
+              onAction={onAction}
+              aiThinking={false}
+            />
+          ) : (
+            <ActionPanel
+              legalMask={[]}
+              config={config}
+              onAction={() => {}}
+              aiThinking={aiThinking || state.current_player !== humanPlayer}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
