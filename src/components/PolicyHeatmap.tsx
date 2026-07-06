@@ -54,6 +54,7 @@ export default function PolicyHeatmap({ policy, takenAction, config }: Props) {
               background: heatColor(challengeProb / maxProb),
               color: challengeProb / maxProb > 0.4 ? 'white' : '#9ca3af',
             }}
+            title={`CH: ${challengeProb.toFixed(8)}`}
           >
             {(challengeProb * 100).toFixed(1)}%
           </div>
@@ -100,7 +101,7 @@ export default function PolicyHeatmap({ policy, takenAction, config }: Props) {
                     outline: isTaken ? '2px solid #facc15' : 'none',
                     outlineOffset: '-1px',
                   }}
-                  title={`${count} × ${di + 1}: ${(p * 100).toFixed(2)}%`}
+                  title={`${count} × ${di + 1}: ${p.toFixed(8)}`}
                 >
                   {p > 0.005 ? `${Math.round(p * 100)}` : ''}
                 </div>
