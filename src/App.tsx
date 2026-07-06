@@ -119,7 +119,7 @@ export default function App() {
       try {
         if (serverUrl) {
           const { action, policy } = await chooseServerAction(
-            serverUrl, gameState, config, { temperature, greedy: false });
+            serverUrl, gameState, config, { temperature, greedy: false, threshold: policyThreshold });
           if (cancelled) return;
           applyPlayerAction(action, policy);
         } else if (weights) {

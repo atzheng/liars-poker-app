@@ -54,7 +54,7 @@ export async function chooseServerAction(
   baseUrl: string,
   state: GameState,
   _config: GameConfig,
-  opts: { temperature?: number; greedy?: boolean } = {},
+  opts: { temperature?: number; greedy?: boolean; threshold?: number } = {},
 ): Promise<ServerMove> {
   const url = baseUrl.replace(/\/+$/, '') + '/move';
   const payload = {
@@ -71,6 +71,7 @@ export async function chooseServerAction(
     loser: state.loser,
     temperature: opts.temperature ?? 1,
     greedy: opts.greedy ?? false,
+    threshold: opts.threshold ?? 0,
   };
   const res = await fetch(url, {
     method: 'POST',
