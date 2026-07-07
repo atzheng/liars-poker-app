@@ -21,6 +21,8 @@ export interface ServerInfo {
   network_type: string;
   checkpoint: string;
   history_encoding: string;
+  /** Action-space abstraction bound from the checkpoint (null = unrestricted). */
+  maxJump: number | null;
 }
 
 /** GET {baseUrl}/config → game dims from the loaded checkpoint. */
@@ -31,12 +33,16 @@ export async function fetchServerConfig(baseUrl: string): Promise<ServerInfo> {
   const j = await res.json() as {
     num_players: number; hand_length: number; num_digits: number;
     network_type: string; checkpoint: string; history_encoding: string;
+    // max_jump present on the factored_mlp (maxjump) backend; absent => null.
+    max_jump?: number | null;
   };
+  const maxJump = j.max_jump ?? null;
   return {
-    config: buildGameConfig(j.num_players, j.hand_length, j.num_digits),
+    config: buildGameConfig(j.num_players, j.hand_length, j.num_digits, maxJump),
     network_type: j.network_type,
     checkpoint: j.checkpoint,
     history_encoding: j.history_encoding,
+    maxJump,
   };
 }
 

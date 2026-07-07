@@ -98,7 +98,24 @@ export function legalActionsMask(state: GameState, config: GameConfig): boolean[
   if (challengeLegal) mask[0] = true;
 
   if (canBid) {
+    // Optional action-space abstraction (max_jump): restrict the next bid's
+    // COUNT to be within `max_jump` of the current bid's count. base_count is
+    // the current bid's count, or 1 for the opening bid (no bid placed yet).
+    // This mirrors legal_actions_mask in liars_poker_jax.py (max-jump branch)
+    // so the move-builder / play-vs-AI only offer bids the maxjump agent can
+    // itself make. When maxJump is null/undefined the game is unrestricted.
+    const maxJump = config.maxJump;
+    const hasBid = state.current_bid_action >= 0;
+    const baseCount = hasBid
+      ? Math.floor((state.current_bid_action - BID_ACTION_OFFSET) / config.num_digits) + 1
+      : 1;
+
     for (let a = minBidAction; a <= max_bids; a++) {
+      if (maxJump != null) {
+        // Count of the bid at action index a (>= 1): floor((a-1)/D) + 1.
+        const bidCount = Math.floor((a - BID_ACTION_OFFSET) / config.num_digits) + 1;
+        if (bidCount > baseCount + maxJump) continue;
+      }
       mask[a] = true;
     }
   }

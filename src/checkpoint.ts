@@ -84,13 +84,22 @@ function buildConfig(
   return buildGameConfig(jaxConfig.num_players, jaxConfig.hand_length, jaxConfig.num_digits);
 }
 
-export function buildGameConfig(num_players: number, hand_length: number, num_digits: number): GameConfig {
+export function buildGameConfig(
+  num_players: number,
+  hand_length: number,
+  num_digits: number,
+  maxJump?: number | null,
+): GameConfig {
   const total_cards = num_players * hand_length;
   const max_bids    = hand_length * num_digits * num_players;
   const num_actions = max_bids + 1;
   // obs_size = num_players + hand_length + 2 + 2*max_bids*num_players
   const obs_size    = num_players + hand_length + 2 + 2 * max_bids * num_players;
-  return { num_players, hand_length, num_digits, total_cards, max_bids, num_actions, obs_size };
+  return {
+    num_players, hand_length, num_digits,
+    maxJump: maxJump ?? null,
+    total_cards, max_bids, num_actions, obs_size,
+  };
 }
 
 function extractWeights(

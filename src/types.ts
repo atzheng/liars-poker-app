@@ -6,6 +6,11 @@ export interface GameConfig {
   num_players: number;
   hand_length: number;
   num_digits: number;
+  // Optional action-space abstraction (max_jump): the next bid's COUNT is
+  // restricted to at most `max_jump` above the current bid's count (base_count
+  // = current bid count, or 1 for the opening). undefined/null => unrestricted.
+  // Mirrors LiarsPokerConfig.max_jump; served on the backend's GET /config.
+  maxJump?: number | null;
   // derived
   total_cards: number;   // num_players * hand_length
   max_bids: number;      // hand_length * num_digits * num_players

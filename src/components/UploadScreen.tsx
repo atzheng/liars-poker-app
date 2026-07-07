@@ -23,6 +23,7 @@ interface ParsedCheckpoint {
   numPlayers: number;
   handLength: number;
   numDigits: number;
+  maxJump?: number | null;       // action-space abstraction (server mode)
   humanPlayer: number;
 }
 
@@ -41,10 +42,12 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
       setParsed({
         data: null,
         serverUrl,
-        serverInfo: `${info.network_type} · ${info.checkpoint}`,
+        serverInfo: `${info.network_type} · ${info.checkpoint}`
+          + (info.maxJump != null ? ` · max_jump=${info.maxJump}` : ''),
         numPlayers: info.config.num_players,
         handLength: info.config.hand_length,
         numDigits: info.config.num_digits,
+        maxJump: info.maxJump,
         humanPlayer: 1,
       });
     } catch (e) {
@@ -126,7 +129,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
 
   const handleStart = useCallback(() => {
     if (!parsed) return;
-    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits);
+    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits, parsed.maxJump);
     if (parsed.serverUrl) {
       onConnectServer(config, parsed.humanPlayer, parsed.serverUrl);
     } else if (parsed.data) {
@@ -136,7 +139,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
 
   const handleExplorer = useCallback(() => {
     if (!parsed || !parsed.serverUrl) return;
-    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits);
+    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits, parsed.maxJump);
     onOpenExplorer(config, parsed.serverUrl, parsed.serverInfo ?? parsed.serverUrl);
   }, [parsed, onOpenExplorer]);
 

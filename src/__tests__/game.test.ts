@@ -210,6 +210,44 @@ describe('legalActionsMask', () => {
   });
 });
 
+describe('legalActionsMask with max_jump', () => {
+  // 2p x3 x3 (D=3): count of bid action a is floor((a-1)/3)+1, counts run 1..6.
+  const D = 3;
+  const cfgMJ = { ...makeConfig(2, 3, 3), maxJump: 1 };
+
+  it('opening: base_count=1, only counts 1..(1+max_jump) legal', () => {
+    const s = dealWithActions(cfgMJ, [0, 1, 2, 1, 0, 2]);
+    const mask = legalActionsMask(s, cfgMJ);
+    expect(mask[CHALLENGE_ACTION]).toBe(false); // no bid yet
+    for (let a = 1; a <= cfgMJ.max_bids; a++) {
+      const count = Math.floor((a - 1) / D) + 1;
+      // maxJump=1, base=1 → counts 1,2 legal; 3..6 illegal.
+      expect(mask[a]).toBe(count <= 2);
+    }
+  });
+
+  it('after a count-2 bid: counts up to base_count+max_jump=3 legal (and strictly higher)', () => {
+    const s = dealWithActions(cfgMJ, [0, 1, 2, 1, 0, 2]);
+    // action 5 = bid_id 4 → count = floor(4/3)+1 = 2, so base_count=2.
+    const afterBid = applyAction(s, cfgMJ, 5);
+    const mask = legalActionsMask(afterBid, cfgMJ);
+    expect(mask[CHALLENGE_ACTION]).toBe(true);
+    for (let a = 1; a <= cfgMJ.max_bids; a++) {
+      const count = Math.floor((a - 1) / D) + 1;
+      // Must be strictly higher than action 5 AND count <= 2+1 = 3.
+      expect(mask[a]).toBe(a > 5 && count <= 3);
+    }
+  });
+
+  it('null max_jump behaves like the unrestricted game', () => {
+    const cfg = makeConfig(2, 3, 3); // no maxJump field
+    const s = dealWithActions(cfg, [0, 1, 2, 1, 0, 2]);
+    for (let a = 1; a <= cfg.max_bids; a++) {
+      expect(legalActionsMask(s, cfg)[a]).toBe(true);
+    }
+  });
+});
+
 describe('applyAction – bid', () => {
   const cfg = makeConfig(2, 3, 3);
 
