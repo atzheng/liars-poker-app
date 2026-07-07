@@ -105,17 +105,26 @@ export function legalActionsMask(state: GameState, config: GameConfig): boolean[
     // so the move-builder / play-vs-AI only offer bids the maxjump agent can
     // itself make. When maxJump is null/undefined the game is unrestricted.
     const maxJump = config.maxJump;
+    // jb game params: opening base count (jb first_bid_base_count; default 1 =
+    // legacy behaviour) and the absolute count cap (jb max_bid_count; null =>
+    // no cap). Mirrors legal_actions_mask in liars_poker_jax.py so the app only
+    // offers bids the agent itself considers legal.
+    const firstBidBaseCount = config.firstBidBaseCount ?? 1;
+    const maxBidCount = config.maxBidCount ?? Infinity;
     const hasBid = state.current_bid_action >= 0;
     const baseCount = hasBid
       ? Math.floor((state.current_bid_action - BID_ACTION_OFFSET) / config.num_digits) + 1
-      : 1;
+      : firstBidBaseCount;
 
     for (let a = minBidAction; a <= max_bids; a++) {
-      if (maxJump != null) {
-        // Count of the bid at action index a (>= 1): floor((a-1)/D) + 1.
-        const bidCount = Math.floor((a - BID_ACTION_OFFSET) / config.num_digits) + 1;
-        if (bidCount > baseCount + maxJump) continue;
-      }
+      // Count of the bid at action index a (>= 1): floor((a-1)/D) + 1.
+      const bidCount = Math.floor((a - BID_ACTION_OFFSET) / config.num_digits) + 1;
+      // No bids below the (opening) base count.
+      if (bidCount < baseCount) continue;
+      // max_bid_count cap (jb game): counts above the cap are illegal.
+      if (bidCount > maxBidCount) continue;
+      // max_jump abstraction: next bid count within maxJump of the base count.
+      if (maxJump != null && bidCount > baseCount + maxJump) continue;
       mask[a] = true;
     }
   }

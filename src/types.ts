@@ -11,6 +11,12 @@ export interface GameConfig {
   // = current bid count, or 1 for the opening). undefined/null => unrestricted.
   // Mirrors LiarsPokerConfig.max_jump; served on the backend's GET /config.
   maxJump?: number | null;
+  // jb/gpu-abstraction game params (served on GET /config). firstBidBaseCount is
+  // the lowest COUNT offered on the opening bid (jb default 2; this agent 1);
+  // maxBidCount caps the absolute bid COUNT (jb ``max_bid_count``). undefined =>
+  // opening base 1 / no count cap (the legacy in-browser behaviour).
+  firstBidBaseCount?: number | null;
+  maxBidCount?: number | null;
   // derived
   total_cards: number;   // num_players * hand_length
   max_bids: number;      // hand_length * num_digits * num_players

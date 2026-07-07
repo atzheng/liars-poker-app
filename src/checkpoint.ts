@@ -89,6 +89,8 @@ export function buildGameConfig(
   hand_length: number,
   num_digits: number,
   maxJump?: number | null,
+  firstBidBaseCount?: number | null,
+  maxBidCount?: number | null,
 ): GameConfig {
   const total_cards = num_players * hand_length;
   const max_bids    = hand_length * num_digits * num_players;
@@ -98,6 +100,8 @@ export function buildGameConfig(
   return {
     num_players, hand_length, num_digits,
     maxJump: maxJump ?? null,
+    firstBidBaseCount: firstBidBaseCount ?? null,
+    maxBidCount: maxBidCount ?? null,
     total_cards, max_bids, num_actions, obs_size,
   };
 }

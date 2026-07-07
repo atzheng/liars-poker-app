@@ -35,10 +35,18 @@ export async function fetchServerConfig(baseUrl: string): Promise<ServerInfo> {
     network_type: string; checkpoint: string; history_encoding: string;
     // max_jump present on the factored_mlp (maxjump) backend; absent => null.
     max_jump?: number | null;
+    // jb/gpu-abstraction backend also serves the opening base count + count cap.
+    first_bid_base_count?: number | null;
+    max_bid_count?: number | null;
   };
   const maxJump = j.max_jump ?? null;
+  const firstBidBaseCount = j.first_bid_base_count ?? null;
+  const maxBidCount = j.max_bid_count ?? null;
   return {
-    config: buildGameConfig(j.num_players, j.hand_length, j.num_digits, maxJump),
+    config: buildGameConfig(
+      j.num_players, j.hand_length, j.num_digits,
+      maxJump, firstBidBaseCount, maxBidCount,
+    ),
     network_type: j.network_type,
     checkpoint: j.checkpoint,
     history_encoding: j.history_encoding,
