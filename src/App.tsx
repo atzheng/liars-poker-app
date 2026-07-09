@@ -6,7 +6,8 @@ import { chooseAiAction } from './agent';
 import { chooseServerAction } from './serverAgent';
 import UploadScreen from './components/UploadScreen';
 import GameBoard from './components/GameBoard';
-import PolicyExplorer from './components/PolicyExplorer';
+import PolicyExplorer, { type ExplorerInit } from './components/PolicyExplorer';
+import { handToCounts } from './trajectory';
 
 type Phase = 'upload' | 'game' | 'explorer';
 
@@ -52,6 +53,11 @@ export default function App() {
   const [temperature, setTemperature] = useState(1);
   const [policyThreshold, setPolicyThreshold] = useState(0);
   const [explorerLabel, setExplorerLabel] = useState<string>('');
+  // Pre-loaded trajectory for the Explorer (set when launched from the game via
+  // "Inspect in Policy Explorer"; undefined => fresh/standalone Explorer).
+  const [explorerInit, setExplorerInit] = useState<ExplorerInit | undefined>(undefined);
+  // Where "Back" returns from the Explorer: 'upload' (standalone) or 'game' (inspect).
+  const [explorerReturn, setExplorerReturn] = useState<Phase>('upload');
 
   const aiScheduled = useRef(false);
 
@@ -85,8 +91,23 @@ export default function App() {
     setServerUrl(url);
     setWeights(null);
     setExplorerLabel(label);
+    setExplorerInit(undefined);
+    setExplorerReturn('upload');
     setPhase('explorer');
   }, []);
+
+  // "Inspect in Policy Explorer" from the live game: capture the observer's hand +
+  // the full bid/challenge history so far, and pre-load the Explorer with it. Only
+  // available in server mode (the Explorer queries the connected server's /move).
+  const handleInspect = useCallback(() => {
+    if (!gameState || !config || !serverUrl) return;
+    const handCounts = handToCounts(gameState.hands[humanPlayer], config.num_digits);
+    const sequence = history.map(h => h.action);
+    setExplorerInit({ actingSeat: humanPlayer, handCounts, sequence });
+    setExplorerLabel('from current game');
+    setExplorerReturn('game');
+    setPhase('explorer');
+  }, [gameState, config, serverUrl, humanPlayer, history]);
 
   const applyPlayerAction = useCallback(
     (action: number, policy?: number[]) => {
@@ -192,7 +213,9 @@ export default function App() {
         config={config}
         serverUrl={serverUrl}
         serverLabel={explorerLabel}
-        onBack={() => setPhase('upload')}
+        initial={explorerInit}
+        backLabel={explorerReturn === 'game' ? 'Back to game' : 'Back'}
+        onBack={() => setPhase(explorerReturn)}
       />
     );
   }
@@ -213,6 +236,7 @@ export default function App() {
         policyThreshold={policyThreshold}
         onPolicyThresholdChange={setPolicyThreshold}
         onAction={handleHumanAction}
+        onInspect={serverUrl ? handleInspect : undefined}
         onReplay={() => startGame(config, weights, humanPlayer, serverUrl)}
         onNewCheckpoint={() => {
           setPhase('upload');

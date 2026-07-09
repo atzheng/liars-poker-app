@@ -19,6 +19,8 @@ interface Props {
   policyThreshold: number;
   onPolicyThresholdChange: (t: number) => void;
   onAction: (action: number) => void;
+  /** When set (server mode), shows a button to open the current state in the Policy Explorer. */
+  onInspect?: () => void;
   onReplay: () => void;
   onNewCheckpoint: () => void;
 }
@@ -130,7 +132,7 @@ function GameOverResults({ state, config, humanPlayer, record, onReplay, onNewCh
   );
 }
 
-export default function GameBoard({ state, config, agentLabel, history, aiThinking, humanPlayer, record, temperature, onTemperatureChange, policyThreshold, onPolicyThresholdChange, onAction, onReplay, onNewCheckpoint }: Props) {
+export default function GameBoard({ state, config, agentLabel, history, aiThinking, humanPlayer, record, temperature, onTemperatureChange, policyThreshold, onPolicyThresholdChange, onAction, onInspect, onReplay, onNewCheckpoint }: Props) {
   const gameOver = isTerminal(state);
   const humanTurn = !gameOver && state.current_player === humanPlayer && !aiThinking;
   const legalMask = humanTurn ? legalActionsMask(state, config) : [];
@@ -226,6 +228,17 @@ export default function GameBoard({ state, config, agentLabel, history, aiThinki
         <span className="text-xs text-gray-500">Current bid:</span>
         <span className="text-sm font-bold text-yellow-400">{currentBidLabel}</span>
       </div>
+
+      {/* Inspect current state in the Policy Explorer (server mode only) */}
+      {onInspect && (
+        <button
+          onClick={onInspect}
+          title="Open the current hand + move history in the Policy Explorer"
+          className="px-4 py-1.5 bg-purple-900/40 hover:bg-purple-800/60 border-b border-gray-700 text-purple-200 text-xs font-medium text-left transition-colors"
+        >
+          🔍 Inspect in Policy Explorer
+        </button>
+      )}
 
       {/* Bid history */}
       <BidHistory history={history} humanPlayer={humanPlayer} numPlayers={config.num_players} config={config} />
