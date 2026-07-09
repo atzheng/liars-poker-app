@@ -96,18 +96,20 @@ export default function App() {
     setPhase('explorer');
   }, []);
 
-  // "Inspect in Policy Explorer" from the live game: capture the observer's hand +
-  // the full bid/challenge history so far, and pre-load the Explorer with it. Only
-  // available in server mode (the Explorer queries the connected server's /move).
-  const handleInspect = useCallback(() => {
+  // "Inspect in Policy Explorer" from the live game: capture the chosen seat's
+  // ACTUAL dealt hand + the full bid/challenge history so far, and pre-load the
+  // Explorer with it, viewing the trajectory from that seat's perspective. Every
+  // seat is inspectable (the human's own, and each AI opponent). Only available in
+  // server mode (the Explorer queries the connected server's /move).
+  const handleInspect = useCallback((seat: number) => {
     if (!gameState || !config || !serverUrl) return;
-    const handCounts = handToCounts(gameState.hands[humanPlayer], config.num_digits);
+    const handCounts = handToCounts(gameState.hands[seat], config.num_digits);
     const sequence = history.map(h => h.action);
-    setExplorerInit({ actingSeat: humanPlayer, handCounts, sequence });
-    setExplorerLabel('from current game');
+    setExplorerInit({ actingSeat: seat, handCounts, sequence });
+    setExplorerLabel(`from current game · P${seat}`);
     setExplorerReturn('game');
     setPhase('explorer');
-  }, [gameState, config, serverUrl, humanPlayer, history]);
+  }, [gameState, config, serverUrl, history]);
 
   const applyPlayerAction = useCallback(
     (action: number, policy?: number[]) => {

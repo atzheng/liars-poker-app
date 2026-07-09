@@ -19,8 +19,12 @@ interface Props {
   policyThreshold: number;
   onPolicyThresholdChange: (t: number) => void;
   onAction: (action: number) => void;
-  /** When set (server mode), shows a button to open the current state in the Policy Explorer. */
-  onInspect?: () => void;
+  /**
+   * When set (server mode), enables per-seat "Inspect in Policy Explorer" buttons.
+   * Called with the seat to inspect: the Explorer is seeded with that seat's actual
+   * dealt hand + the game's move history, viewed from that seat's perspective.
+   */
+  onInspect?: (seat: number) => void;
   onReplay: () => void;
   onNewCheckpoint: () => void;
 }
@@ -215,6 +219,15 @@ export default function GameBoard({ state, config, agentLabel, history, aiThinki
                 >
                   {showAiHand ? 'hide' : 'show'}
                 </button>
+                {onInspect && (
+                  <button
+                    onClick={() => onInspect(p)}
+                    title={`Inspect P${p}'s policy: open this AI's actual hand + move history in the Policy Explorer, viewed from P${p}'s seat`}
+                    className="text-xs px-1.5 py-0.5 rounded bg-purple-900/50 hover:bg-purple-800/70 text-purple-200 transition-colors font-normal"
+                  >
+                    🔍 Inspect P{p} (AI)
+                  </button>
+                )}
               </span>
             }
             labelColor="text-purple-400"
@@ -229,14 +242,15 @@ export default function GameBoard({ state, config, agentLabel, history, aiThinki
         <span className="text-sm font-bold text-yellow-400">{currentBidLabel}</span>
       </div>
 
-      {/* Inspect current state in the Policy Explorer (server mode only) */}
+      {/* Inspect your own seat in the Policy Explorer (server mode only).
+          Per-AI-seat inspect buttons live in each AI player's hand row above. */}
       {onInspect && (
         <button
-          onClick={onInspect}
-          title="Open the current hand + move history in the Policy Explorer"
+          onClick={() => onInspect(humanPlayer)}
+          title="Open your hand + the move history in the Policy Explorer, viewed from your seat"
           className="px-4 py-1.5 bg-purple-900/40 hover:bg-purple-800/60 border-b border-gray-700 text-purple-200 text-xs font-medium text-left transition-colors"
         >
-          🔍 Inspect in Policy Explorer
+          🔍 Inspect P{humanPlayer} (you) in Policy Explorer
         </button>
       )}
 
