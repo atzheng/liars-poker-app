@@ -65,6 +65,8 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
   const [loading, setLoading] = useState(false);
   const [parsed, setParsed] = useState<ParsedCheckpoint | null>(null);
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
+  // Checkpoint path typed/pasted into the server picker (full path or s3://).
+  const [ckptInput, setCkptInput] = useState('');
 
   const handleConnect = useCallback(async () => {
     setLoading(true);
@@ -80,6 +82,9 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
         checkpointList = cp.checkpoints;
         browseDir = cp.dir ?? browseDir;
       } catch { /* listing optional */ }
+      // Prefill the path box with the already-loaded checkpoint (if any) so the
+      // user can see/edit it; otherwise leave it blank to paste one.
+      setCkptInput(info.checkpointPath ?? '');
       setParsed({
         data: null,
         serverUrl,
@@ -104,11 +109,13 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
   }, [serverUrl]);
 
   const handleLoadCheckpoint = useCallback(async (checkpoint: string) => {
-    if (!parsed?.serverUrl || !checkpoint) return;
+    const path = checkpoint.trim();
+    if (!parsed?.serverUrl || !path) return;
     setLoading(true);
     setError(null);
     try {
-      const info = await loadServerCheckpoint(parsed.serverUrl, checkpoint);
+      const info = await loadServerCheckpoint(parsed.serverUrl, path);
+      setCkptInput(info.checkpointPath ?? path);
       setParsed(p => p && ({ ...p, ...serverInfoToParsed(info) }));
     } catch (e) {
       setError(`Failed to load checkpoint: ${e instanceof Error ? e.message : String(e)}`);
@@ -117,7 +124,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
     }
   }, [parsed?.serverUrl]);
 
-  const handleBrowse = useCallback(async (dir: string) => {
+  const handleRefreshList = useCallback(async (dir: string) => {
     if (!parsed?.serverUrl) return;
     setLoading(true);
     setError(null);
@@ -227,47 +234,56 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
             {isServer ? 'AI (server) — dims fixed by checkpoint' : 'Configure game parameters'}
           </p>
 
-          {isServer && parsed.checkpointList && parsed.checkpointList.length > 0 && (
+          {isServer && (
             <div className="mb-6 bg-gray-700/40 rounded-lg p-3 space-y-2">
               <label className="block text-sm text-gray-300 font-medium">Checkpoint</label>
               <div className="flex gap-2">
-                <select
-                  value={parsed.checkpointPath ?? ''}
-                  disabled={loading}
-                  onChange={e => handleLoadCheckpoint(e.target.value)}
-                  className="flex-1 bg-gray-700 text-white rounded-lg px-2 py-2 border border-gray-600 focus:border-purple-400 focus:outline-none text-sm disabled:opacity-50"
-                >
-                  {!parsed.serverLoaded && <option value="">— choose a checkpoint —</option>}
-                  {/* Include the loaded path even if it's outside the browse dir. */}
-                  {parsed.checkpointPath && !parsed.checkpointList.includes(parsed.checkpointPath) && (
-                    <option value={parsed.checkpointPath}>{checkpointLabel(parsed.checkpointPath)}</option>
-                  )}
-                  {parsed.checkpointList.map(path => (
-                    <option key={path} value={path}>{checkpointLabel(path)}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex gap-2">
                 <input
                   type="text"
-                  defaultValue={parsed.browseDir ?? ''}
-                  placeholder="checkpoint dir or s3:// prefix"
-                  onKeyDown={e => { if (e.key === 'Enter') handleBrowse((e.target as HTMLInputElement).value); }}
-                  className="flex-1 bg-gray-700 text-gray-300 rounded-lg px-2 py-1.5 border border-gray-600 focus:border-purple-400 focus:outline-none text-xs"
+                  value={ckptInput}
+                  placeholder="path or s3:// to a .msgpack checkpoint"
+                  disabled={loading}
+                  onChange={e => setCkptInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleLoadCheckpoint(ckptInput); }}
+                  className="flex-1 bg-gray-700 text-white rounded-lg px-2 py-2 border border-gray-600 focus:border-purple-400 focus:outline-none text-sm disabled:opacity-50"
                 />
                 <button
-                  onClick={e => {
-                    const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
-                    handleBrowse(input?.value ?? '');
-                  }}
-                  disabled={loading}
-                  className="px-3 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-500 transition-colors text-xs disabled:opacity-50"
+                  onClick={() => handleLoadCheckpoint(ckptInput)}
+                  disabled={loading || !ckptInput.trim()}
+                  className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition-colors text-sm disabled:opacity-50"
                 >
-                  {loading ? '…' : 'Browse'}
+                  {loading ? '…' : 'Load'}
                 </button>
               </div>
+
+              {parsed.checkpointList && parsed.checkpointList.length > 0 && (
+                <div className="flex gap-2">
+                  <select
+                    value=""
+                    disabled={loading}
+                    onChange={e => { if (e.target.value) { setCkptInput(e.target.value); handleLoadCheckpoint(e.target.value); } }}
+                    className="flex-1 bg-gray-700 text-white rounded-lg px-2 py-2 border border-gray-600 focus:border-purple-400 focus:outline-none text-sm disabled:opacity-50"
+                  >
+                    <option value="">— or pick a discovered checkpoint —</option>
+                    {parsed.checkpointList.map(path => (
+                      <option key={path} value={path}>{checkpointLabel(path)}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleRefreshList(parsed.browseDir ?? '')}
+                    disabled={loading}
+                    title={`Re-list ${parsed.browseDir ?? 'default dir'}`}
+                    className="px-3 py-2 rounded-lg bg-gray-600 text-white hover:bg-gray-500 transition-colors text-sm disabled:opacity-50"
+                  >
+                    ⟳
+                  </button>
+                </div>
+              )}
+
               <p className="text-gray-500 text-xs">
-                Selecting a checkpoint hot-loads it on the server (no restart).
+                {parsed.serverLoaded
+                  ? `Loaded: ${parsed.checkpointPath ?? '—'}`
+                  : 'Paste a checkpoint path and click Load — game parameters populate from it.'}
               </p>
             </div>
           )}
