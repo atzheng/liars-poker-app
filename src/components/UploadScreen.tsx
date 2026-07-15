@@ -2,7 +2,8 @@ import React, { useCallback, useState } from 'react';
 import { loadCheckpointBytes, loadCheckpointJson, buildGameConfig } from '../checkpoint';
 import type { CheckpointData } from '../checkpoint';
 import type { GameConfig } from '../types';
-import { fetchServerConfig } from '../serverAgent';
+import { fetchServerConfig, fetchCheckpoints, loadServerCheckpoint } from '../serverAgent';
+import type { ServerInfo } from '../serverAgent';
 
 const BUILT_IN_AGENTS: { name: string; description: string; path: string }[] = [
   { name: '3×3', description: '3 players · 3 cards', path: '/agents/3x3.msgpack' },
@@ -20,11 +21,42 @@ interface ParsedCheckpoint {
   data: CheckpointData | null;   // null in server mode
   serverUrl?: string;            // set → Transformer AI (server) mode
   serverInfo?: string;           // description of the loaded server checkpoint
+  serverLoaded?: boolean;        // server has a checkpoint loaded (dims valid)
+  checkpointPath?: string | null; // currently-loaded checkpoint path (server)
+  checkpointList?: string[];     // checkpoints the server offers to load
+  browseDir?: string | null;     // dir/prefix the list was fetched from
   numPlayers: number;
   handLength: number;
   numDigits: number;
   maxJump?: number | null;       // action-space abstraction (server mode)
   humanPlayer: number;
+}
+
+/** Short label for a checkpoint path: "<run>/agent_NNNN.msgpack". */
+function checkpointLabel(path: string): string {
+  const parts = path.replace(/\/+$/, '').split('/');
+  return parts.slice(-2).join('/');
+}
+
+/** Build the parsed-state fields from a freshly-fetched/loaded ServerInfo. */
+function serverInfoToParsed(info: ServerInfo): Partial<ParsedCheckpoint> {
+  if (!info.loaded || !info.config) {
+    return {
+      serverLoaded: false,
+      serverInfo: 'no checkpoint loaded',
+      checkpointPath: null,
+    };
+  }
+  return {
+    serverLoaded: true,
+    serverInfo: `${info.network_type} · ${info.checkpoint}`
+      + (info.maxJump != null ? ` · max_jump=${info.maxJump}` : ''),
+    checkpointPath: info.checkpointPath ?? null,
+    numPlayers: info.config.num_players,
+    handLength: info.config.hand_length,
+    numDigits: info.config.num_digits,
+    maxJump: info.maxJump,
+  };
 }
 
 export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }: Props) {
@@ -39,27 +71,65 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
     setError(null);
     try {
       const info = await fetchServerConfig(serverUrl);
+      // Best-effort list of checkpoints the server can hot-load (mlp backend);
+      // older backends 404 → empty list and the picker is simply hidden.
+      let checkpointList: string[] = [];
+      let browseDir: string | null = info.defaultDir ?? null;
+      try {
+        const cp = await fetchCheckpoints(serverUrl);
+        checkpointList = cp.checkpoints;
+        browseDir = cp.dir ?? browseDir;
+      } catch { /* listing optional */ }
       setParsed({
         data: null,
         serverUrl,
-        serverInfo: `${info.network_type} · ${info.checkpoint}`
-          + (info.maxJump != null ? ` · max_jump=${info.maxJump}` : ''),
-        numPlayers: info.config.num_players,
-        handLength: info.config.hand_length,
-        numDigits: info.config.num_digits,
-        maxJump: info.maxJump,
+        checkpointList,
+        browseDir,
+        // dims default to sensible fallbacks until a checkpoint is loaded.
+        numPlayers: info.config?.num_players ?? 2,
+        handLength: info.config?.hand_length ?? 1,
+        numDigits: info.config?.num_digits ?? 2,
         humanPlayer: 1,
+        ...serverInfoToParsed(info),
       });
     } catch (e) {
       setError(
         `Could not reach transformer server at ${serverUrl}: ` +
         `${e instanceof Error ? e.message : String(e)}. ` +
-        `Is serve_agent.py running?`,
+        `Is the inference server running?`,
       );
     } finally {
       setLoading(false);
     }
   }, [serverUrl]);
+
+  const handleLoadCheckpoint = useCallback(async (checkpoint: string) => {
+    if (!parsed?.serverUrl || !checkpoint) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const info = await loadServerCheckpoint(parsed.serverUrl, checkpoint);
+      setParsed(p => p && ({ ...p, ...serverInfoToParsed(info) }));
+    } catch (e) {
+      setError(`Failed to load checkpoint: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [parsed?.serverUrl]);
+
+  const handleBrowse = useCallback(async (dir: string) => {
+    if (!parsed?.serverUrl) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const cp = await fetchCheckpoints(parsed.serverUrl, dir || undefined);
+      setParsed(p => p && ({ ...p, checkpointList: cp.checkpoints, browseDir: cp.dir ?? dir }));
+    } catch (e) {
+      setError(`Failed to list checkpoints: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [parsed?.serverUrl]);
 
   const handlePreset = useCallback(async (path: string) => {
     setLoading(true);
@@ -154,8 +224,53 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
         <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <h1 className="text-3xl font-bold text-white mb-1 text-center">Liar's Poker AI</h1>
           <p className="text-gray-400 mb-6 text-sm text-center">
-            {isServer ? 'Transformer AI (server) — dims fixed by checkpoint' : 'Configure game parameters'}
+            {isServer ? 'AI (server) — dims fixed by checkpoint' : 'Configure game parameters'}
           </p>
+
+          {isServer && parsed.checkpointList && parsed.checkpointList.length > 0 && (
+            <div className="mb-6 bg-gray-700/40 rounded-lg p-3 space-y-2">
+              <label className="block text-sm text-gray-300 font-medium">Checkpoint</label>
+              <div className="flex gap-2">
+                <select
+                  value={parsed.checkpointPath ?? ''}
+                  disabled={loading}
+                  onChange={e => handleLoadCheckpoint(e.target.value)}
+                  className="flex-1 bg-gray-700 text-white rounded-lg px-2 py-2 border border-gray-600 focus:border-purple-400 focus:outline-none text-sm disabled:opacity-50"
+                >
+                  {!parsed.serverLoaded && <option value="">— choose a checkpoint —</option>}
+                  {/* Include the loaded path even if it's outside the browse dir. */}
+                  {parsed.checkpointPath && !parsed.checkpointList.includes(parsed.checkpointPath) && (
+                    <option value={parsed.checkpointPath}>{checkpointLabel(parsed.checkpointPath)}</option>
+                  )}
+                  {parsed.checkpointList.map(path => (
+                    <option key={path} value={path}>{checkpointLabel(path)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  defaultValue={parsed.browseDir ?? ''}
+                  placeholder="checkpoint dir or s3:// prefix"
+                  onKeyDown={e => { if (e.key === 'Enter') handleBrowse((e.target as HTMLInputElement).value); }}
+                  className="flex-1 bg-gray-700 text-gray-300 rounded-lg px-2 py-1.5 border border-gray-600 focus:border-purple-400 focus:outline-none text-xs"
+                />
+                <button
+                  onClick={e => {
+                    const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                    handleBrowse(input?.value ?? '');
+                  }}
+                  disabled={loading}
+                  className="px-3 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-500 transition-colors text-xs disabled:opacity-50"
+                >
+                  {loading ? '…' : 'Browse'}
+                </button>
+              </div>
+              <p className="text-gray-500 text-xs">
+                Selecting a checkpoint hot-loads it on the server (no restart).
+              </p>
+            </div>
+          )}
 
           <div className="space-y-4 mb-6">
             <div>
@@ -223,10 +338,14 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
               {isServer ? 'Transformer server:' : 'Detected from checkpoint:'}
             </p>
             {isServer ? (
-              <p>
-                {parsed.numPlayers}p · {parsed.handLength} cards · {parsed.numDigits} digits ·{' '}
-                {parsed.serverInfo} @ {parsed.serverUrl}
-              </p>
+              parsed.serverLoaded ? (
+                <p>
+                  {parsed.numPlayers}p · {parsed.handLength} cards · {parsed.numDigits} digits ·{' '}
+                  {parsed.serverInfo} @ {parsed.serverUrl}
+                </p>
+              ) : (
+                <p>No checkpoint loaded @ {parsed.serverUrl} — choose one above to begin.</p>
+              )
             ) : (
               <p>
                 {parsed.data!.config.num_players}p · {parsed.data!.config.hand_length} cards ·{' '}
@@ -244,13 +363,14 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
             </button>
             <button
               onClick={handleStart}
-              className="flex-1 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-medium"
+              disabled={isServer && !parsed.serverLoaded}
+              className="flex-1 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-medium disabled:opacity-50 disabled:hover:bg-blue-600"
             >
               Start Game
             </button>
           </div>
 
-          {isServer && (
+          {isServer && parsed.serverLoaded && (
             <button
               onClick={handleExplorer}
               className="w-full mt-3 py-2 rounded-lg bg-purple-700 text-white hover:bg-purple-600 transition-colors font-medium"
