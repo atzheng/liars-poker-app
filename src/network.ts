@@ -48,34 +48,37 @@ function relu(x: Float32Array): Float32Array {
 
 export function legalPolicy(logits: Float32Array, legal: boolean[]): Float32Array {
   const n = logits.length;
-
-  // l_min over all logits
-  let lMin = logits[0];
-  for (let i = 1; i < n; i++) if (logits[i] < lMin) lMin = logits[i];
-
-  // Replace illegal with l_min
   const masked = new Float32Array(n);
-  for (let i = 0; i < n; i++) masked[i] = legal[i] ? logits[i] : lMin;
-
-  // Subtract max for numerical stability
-  let lMax = masked[0];
-  for (let i = 1; i < n; i++) if (masked[i] > lMax) lMax = masked[i];
-  for (let i = 0; i < n; i++) masked[i] -= lMax;
-
-  // Multiply by legal mask (illegal → 0 before exp)
-  for (let i = 0; i < n; i++) if (!legal[i]) masked[i] = 0;
-
-  // Exp and sum
-  const expLogits = new Float32Array(n);
-  let sum = 0;
+  
+  // 1. Apply -Infinity mask and find Max of LEGAL moves only
+  let maxLegal = -Infinity;
   for (let i = 0; i < n; i++) {
-    expLogits[i] = legal[i] ? Math.exp(masked[i]) : 0;
-    sum += expLogits[i];
+    if (legal[i]) {
+      if (logits[i] > maxLegal) maxLegal = logits[i];
+    }
   }
 
-  // Normalize
-  for (let i = 0; i < n; i++) expLogits[i] /= sum;
-  return expLogits;
+  // If no legal moves exist, you might want to return a uniform distribution 
+  // or handle the error, but for now we assume at least one legal move.
+  
+  // 2. Exp and Sum (using maxLegal for stability)
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    if (legal[i]) {
+      // exp(logit - max) is numerically stable
+      masked[i] = Math.exp(logits[i] - maxLegal);
+      sum += masked[i];
+    } else {
+      masked[i] = 0; // These will have 0 probability
+    }
+  }
+
+  // 3. Normalize
+  for (let i = 0; i < n; i++) {
+    masked[i] /= sum;
+  }
+
+  return masked;
 }
 
 // ---------------------------------------------------------------------------

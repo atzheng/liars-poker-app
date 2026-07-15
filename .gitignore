@@ -4,3 +4,4 @@ dist/
 *.pickle
 __pycache__/
 *.pyc
+/.agent-shell/
