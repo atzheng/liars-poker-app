@@ -1,6 +1,9 @@
 node_modules/
 dist/
 *.msgpack
+# ...except the committed agents/test fixtures (checked in deliberately).
+!public/agents/*.msgpack
+!tests/agents/*.msgpack
 *.pickle
 __pycache__/
 *.pyc

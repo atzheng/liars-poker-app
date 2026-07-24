@@ -5,9 +5,13 @@
  * SEQUENCE OF MOVES (built from a fresh deal, or pre-loaded from a live game via
  * the "Inspect in Policy Explorer" button). The Explorer then reconstructs EVERY
  * intermediate GameState along the sequence (reusing src/game.ts via
- * src/trajectory.ts) and queries the trained agent (/move) for its action
- * distribution at each decision point where it is the acting seat's turn — not
- * just the final state. Each per-step policy is rendered with PolicyHeatmap.
+ * src/trajectory.ts) and queries the trained agent for its action distribution
+ * at each decision point where it is the acting seat's turn — not just the
+ * final state. Each per-step policy is rendered with PolicyHeatmap.
+ *
+ * The agent is reached through a `PolicySource` (src/policySource.ts), so the
+ * Explorer works against either backend: the Python inference server or an
+ * in-browser checkpoint's own forward pass.
  *
  * Editing is reactive: changing the hand, or any move (or adding/removing trailing
  * moves), re-queries every affected step. Re-queries are DEBOUNCED (~300ms) so a
@@ -22,7 +26,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GameConfig } from '../types';
 import { CHALLENGE_ACTION, legalActionsMask } from '../game';
-import { chooseServerAction } from '../serverAgent';
+import type { PolicySource, PolicyQuery } from '../policySource';
 import {
   buildState,
   buildTrajectory,
@@ -41,19 +45,14 @@ export interface ExplorerInit {
 
 interface Props {
   config: GameConfig;
-  serverUrl: string;
-  serverLabel?: string;
+  /** How to evaluate a state — server-backed or in-browser. */
+  query: PolicySource;
+  /** Short description of the agent being inspected (shown in the header). */
+  agentLabel?: string;
   onBack: () => void;
   backLabel?: string;
   /** When set, pre-loads the Explorer with a captured game trajectory. */
   initial?: ExplorerInit;
-}
-
-interface QueryResult {
-  policy: number[];
-  value?: number;
-  legal?: boolean[];
-  action: number;  // server argmax (greedy)
 }
 
 /** Debounce a (referentially-stable) value: returns the last value that has been
@@ -73,7 +72,7 @@ function playerLabel(p: number, actingSeat: number): string {
 }
 
 export default function PolicyExplorer({
-  config, serverUrl, serverLabel, onBack, backLabel, initial,
+  config, query, agentLabel, onBack, backLabel, initial,
 }: Props) {
   const { num_players, hand_length, num_digits, max_bids } = config;
 
@@ -91,7 +90,7 @@ export default function PolicyExplorer({
     initial?.sequence ? [...initial.sequence] : [],
   );
   // Per-step query results, keyed by prefixLen (the # of moves before the node).
-  const [results, setResults] = useState<Map<number, QueryResult>>(new Map());
+  const [results, setResults] = useState<Map<number, PolicyQuery>>(new Map());
   const [querying, setQuerying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -114,7 +113,7 @@ export default function PolicyExplorer({
   const finalLegal = useMemo(() => legalActionsMask(finalState, config), [finalState, config]);
 
   // ------------------------------------------------------------------
-  // Debounced inputs → drive the (server-hitting) queries.
+  // Debounced inputs → drive the agent queries.
   // ------------------------------------------------------------------
   const dSeq = useDebounced(sequence, 300);
   const dHand = useDebounced(handCounts, 300);
@@ -138,22 +137,15 @@ export default function PolicyExplorer({
     let cancelled = false;
     setQuerying(true);
     setError(null);
-    // greedy=true so `action` marks the server argmax; we render the full policy.
+    // `action` marks the agent's greedy choice; we render the full policy.
     Promise.all(
       decisionNodes.map(n =>
-        chooseServerAction(serverUrl, n.state, config, { greedy: true })
-          .then(move => ({
-            prefixLen: n.prefixLen,
-            result: {
-              policy: move.policy, value: move.value,
-              legal: move.legal, action: move.action,
-            } as QueryResult,
-          })),
+        query(n.state).then(result => ({ prefixLen: n.prefixLen, result })),
       ),
     )
       .then(entries => {
         if (cancelled) return;
-        const map = new Map<number, QueryResult>();
+        const map = new Map<number, PolicyQuery>();
         for (const e of entries) map.set(e.prefixLen, e.result);
         setResults(map);
       })
@@ -165,7 +157,7 @@ export default function PolicyExplorer({
         if (!cancelled) setQuerying(false);
       });
     return () => { cancelled = true; };
-  }, [serverUrl, config, dSeq, dHand, dSeat, handValid]);
+  }, [query, config, dSeq, dHand, dSeat, handValid]);
 
   const updating = !settled || querying;
 
@@ -383,7 +375,7 @@ export default function PolicyExplorer({
             <h1 className="text-2xl font-bold text-white">Policy Explorer</h1>
             <p className="text-gray-400 text-sm">
               Agent policy at every decision point along a trajectory.{' '}
-              {serverLabel && <span className="text-gray-500">({serverLabel})</span>}
+              {agentLabel && <span className="text-gray-500">({agentLabel})</span>}
             </p>
           </div>
           <div className="flex items-center gap-2">

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { loadCheckpointBytes, loadCheckpointJson, buildGameConfig } from '../checkpoint';
+import { loadCheckpointBytes, loadCheckpointJson } from '../checkpoint';
 import type { CheckpointData } from '../checkpoint';
-import type { GameConfig } from '../types';
+import type { GameConfig, NetworkWeights } from '../types';
 import { fetchServerConfig, fetchCheckpoints, loadServerCheckpoint } from '../serverAgent';
 import type { ServerInfo } from '../serverAgent';
 import { loadConfig } from '../config';
@@ -15,7 +15,11 @@ const DEFAULT_SERVER_URL = 'http://localhost:8000';
 interface Props {
   onLoad: (data: CheckpointData, humanPlayer: number) => void;
   onConnectServer: (config: GameConfig, humanPlayer: number, url: string) => void;
-  onOpenExplorer: (config: GameConfig, url: string, label: string) => void;
+  onOpenExplorer: (
+    config: GameConfig,
+    agent: { serverUrl?: string; weights?: NetworkWeights },
+    label: string,
+  ) => void;
 }
 
 interface ParsedCheckpoint {
@@ -26,11 +30,23 @@ interface ParsedCheckpoint {
   checkpointPath?: string | null; // currently-loaded checkpoint path (server)
   checkpointList?: string[];     // checkpoints the server offers to load
   browseDir?: string | null;     // dir/prefix the list was fetched from
+  // Authoritative game config — from the checkpoint (in-browser) or the server.
+  // The dims and the observation layout are fixed by the loaded weights, so
+  // this is used as-is rather than rebuilt from editable fields.
+  config: GameConfig | null;
   numPlayers: number;
   handLength: number;
   numDigits: number;
   maxJump?: number | null;       // action-space abstraction (server mode)
   humanPlayer: number;
+}
+
+/** One-line architecture summary for a locally-loaded checkpoint. */
+function archLabel(data: CheckpointData): string {
+  const { networkType, handEncoding, historyEncoding, maxJump, hiddenLayers } = data.arch;
+  return `${networkType} · ${hiddenLayers.length} hidden layers · ${handEncoding} hand · `
+    + `${historyEncoding} history`
+    + (maxJump != null ? ` · max_jump=${maxJump}` : '');
 }
 
 /** Short label for a checkpoint path: "<run>/agent_NNNN.msgpack". */
@@ -53,6 +69,7 @@ function serverInfoToParsed(info: ServerInfo): Partial<ParsedCheckpoint> {
     serverInfo: `${info.network_type} · ${info.checkpoint}`
       + (info.maxJump != null ? ` · max_jump=${info.maxJump}` : ''),
     checkpointPath: info.checkpointPath ?? null,
+    config: info.config,
     numPlayers: info.config.num_players,
     handLength: info.config.hand_length,
     numDigits: info.config.num_digits,
@@ -109,6 +126,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
         serverUrl,
         checkpointList,
         browseDir,
+        config: info.config ?? null,
         // dims default to sensible fallbacks until a checkpoint is loaded.
         numPlayers: info.config?.num_players ?? 2,
         handLength: info.config?.hand_length ?? 1,
@@ -167,6 +185,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
       const data = loadCheckpointBytes(buf);
       setParsed({
         data,
+        config: data.config,
         numPlayers: data.config.num_players,
         handLength: data.config.hand_length,
         numDigits: data.config.num_digits,
@@ -193,6 +212,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
       }
       setParsed({
         data,
+        config: data.config,
         numPlayers: data.config.num_players,
         handLength: data.config.hand_length,
         numDigits: data.config.num_digits,
@@ -224,19 +244,29 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
   );
 
   const handleStart = useCallback(() => {
-    if (!parsed) return;
-    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits, parsed.maxJump);
+    // The config comes from the loaded weights (dims AND observation layout),
+    // so it is used verbatim — a hand-edited config would not match the network.
+    if (!parsed?.config) return;
     if (parsed.serverUrl) {
-      onConnectServer(config, parsed.humanPlayer, parsed.serverUrl);
+      onConnectServer(parsed.config, parsed.humanPlayer, parsed.serverUrl);
     } else if (parsed.data) {
-      onLoad({ ...parsed.data, config }, parsed.humanPlayer);
+      onLoad(parsed.data, parsed.humanPlayer);
     }
   }, [parsed, onLoad, onConnectServer]);
 
   const handleExplorer = useCallback(() => {
-    if (!parsed || !parsed.serverUrl) return;
-    const config = buildGameConfig(parsed.numPlayers, parsed.handLength, parsed.numDigits, parsed.maxJump);
-    onOpenExplorer(config, parsed.serverUrl, parsed.serverInfo ?? parsed.serverUrl);
+    if (!parsed?.config) return;
+    if (parsed.serverUrl) {
+      onOpenExplorer(
+        parsed.config, { serverUrl: parsed.serverUrl },
+        parsed.serverInfo ?? parsed.serverUrl,
+      );
+    } else if (parsed.data) {
+      onOpenExplorer(
+        parsed.config, { weights: parsed.data.weights },
+        `${parsed.data.arch.networkType} · in-browser`,
+      );
+    }
   }, [parsed, onOpenExplorer]);
 
   if (parsed) {
@@ -250,7 +280,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
         <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <h1 className="text-3xl font-bold text-white mb-1 text-center">Liar's Poker AI</h1>
           <p className="text-gray-400 mb-6 text-sm text-center">
-            {isServer ? 'AI (server) — dims fixed by checkpoint' : 'Configure game parameters'}
+            {isServer ? 'AI (server) — dims fixed by checkpoint' : 'In-browser AI — dims fixed by checkpoint'}
           </p>
 
           {isServer && (
@@ -309,46 +339,6 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
 
           <div className="space-y-4 mb-6">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Number of Players</label>
-              <input
-                type="number"
-                min={2}
-                max={6}
-                value={parsed.numPlayers}
-                disabled={isServer}
-                onChange={e => setParsed(p => {
-                  if (!p) return p;
-                  const n = Math.max(2, parseInt(e.target.value) || 2);
-                  return { ...p, numPlayers: n, humanPlayer: Math.min(p.humanPlayer, n - 1) };
-                })}
-                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none disabled:opacity-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Hand Size (cards per player)</label>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={parsed.handLength}
-                disabled={isServer}
-                onChange={e => setParsed(p => p && ({ ...p, handLength: Math.max(1, parseInt(e.target.value) || 1) }))}
-                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none disabled:opacity-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Number of Digits (1–N)</label>
-              <input
-                type="number"
-                min={2}
-                max={10}
-                value={parsed.numDigits}
-                disabled={isServer}
-                onChange={e => setParsed(p => p && ({ ...p, numDigits: Math.max(2, parseInt(e.target.value) || 2) }))}
-                className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600 focus:border-blue-400 focus:outline-none disabled:opacity-50"
-              />
-            </div>
-            <div>
               <label className="block text-sm text-gray-400 mb-2">Play as</label>
               <div className="flex flex-wrap gap-2">
                 {playerLabels.map((label, i) => (
@@ -382,10 +372,13 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
                 <p>No checkpoint loaded @ {parsed.serverUrl} — choose one above to begin.</p>
               )
             ) : (
-              <p>
-                {parsed.data!.config.num_players}p · {parsed.data!.config.hand_length} cards ·{' '}
-                {parsed.data!.config.num_digits} digits · {parsed.data!.weights.numLayers} hidden layers
-              </p>
+              <>
+                <p>
+                  {parsed.data!.config.num_players}p · {parsed.data!.config.hand_length} cards ·{' '}
+                  {parsed.data!.config.num_digits} digits
+                </p>
+                <p>{archLabel(parsed.data!)}</p>
+              </>
             )}
           </div>
 
@@ -405,7 +398,7 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
             </button>
           </div>
 
-          {isServer && parsed.serverLoaded && (
+          {(parsed.data || (isServer && parsed.serverLoaded)) && (
             <button
               onClick={handleExplorer}
               className="w-full mt-3 py-2 rounded-lg bg-purple-700 text-white hover:bg-purple-600 transition-colors font-medium"

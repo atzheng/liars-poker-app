@@ -20,7 +20,7 @@ interface Props {
   onPolicyThresholdChange: (t: number) => void;
   onAction: (action: number) => void;
   /**
-   * When set (server mode), enables per-seat "Inspect in Policy Explorer" buttons.
+   * When set, enables per-seat "Inspect in Policy Explorer" buttons.
    * Called with the seat to inspect: the Explorer is seeded with that seat's actual
    * dealt hand + the game's move history, viewed from that seat's perspective.
    */
@@ -242,7 +242,7 @@ export default function GameBoard({ state, config, agentLabel, history, aiThinki
         <span className="text-sm font-bold text-yellow-400">{currentBidLabel}</span>
       </div>
 
-      {/* Inspect your own seat in the Policy Explorer (server mode only).
+      {/* Inspect your own seat in the Policy Explorer.
           Per-AI-seat inspect buttons live in each AI player's hand row above. */}
       {onInspect && (
         <button

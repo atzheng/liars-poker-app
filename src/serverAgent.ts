@@ -61,10 +61,13 @@ function parseServerConfig(j: RawConfig): ServerInfo {
   const maxBidCount = j.max_bid_count ?? null;
   return {
     loaded: true,
-    config: buildGameConfig(
-      j.num_players!, j.hand_length!, j.num_digits!,
+    config: buildGameConfig(j.num_players!, j.hand_length!, j.num_digits!, {
       maxJump, firstBidBaseCount, maxBidCount,
-    ),
+      // The server builds observations itself, but keep the config honest so
+      // anything computing an observation locally matches the backend.
+      handEncoding: 'histogram',
+      historyEncoding: j.history_encoding === 'compact' ? 'compact' : 'sparse',
+    }),
     network_type: j.network_type,
     checkpoint: j.checkpoint,
     checkpointPath: j.checkpoint_path,

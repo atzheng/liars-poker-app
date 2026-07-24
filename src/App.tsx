@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CheckpointData } from './checkpoint';
 import type { GameConfig, GameState, HistoryEntry, NetworkWeights } from './types';
 import { applyAction, CHALLENGE_ACTION, decodeBid, dealGame, getReturns, isTerminal, legalActionsMask } from './game';
 import { chooseAiAction } from './agent';
 import { chooseServerAction } from './serverAgent';
+import { localPolicySource, serverPolicySource } from './policySource';
 import UploadScreen from './components/UploadScreen';
 import GameBoard from './components/GameBoard';
 import PolicyExplorer, { type ExplorerInit } from './components/PolicyExplorer';
@@ -86,30 +87,44 @@ export default function App() {
     startGame(cfg, null, hp, url);
   }, [startGame]);
 
-  const handleOpenExplorer = useCallback((cfg: GameConfig, url: string, label: string) => {
-    setConfig(cfg);
-    setServerUrl(url);
-    setWeights(null);
-    setExplorerLabel(label);
-    setExplorerInit(undefined);
-    setExplorerReturn('upload');
-    setPhase('explorer');
-  }, []);
+  // Standalone Explorer from the upload screen — against the connected server
+  // or an in-browser checkpoint, whichever was loaded.
+  const handleOpenExplorer = useCallback(
+    (cfg: GameConfig, agent: { serverUrl?: string; weights?: NetworkWeights }, label: string) => {
+      setConfig(cfg);
+      setServerUrl(agent.serverUrl ?? null);
+      setWeights(agent.weights ?? null);
+      setExplorerLabel(label);
+      setExplorerInit(undefined);
+      setExplorerReturn('upload');
+      setPhase('explorer');
+    },
+    [],
+  );
+
+  // How the Explorer evaluates states: the server when connected, otherwise the
+  // in-browser network. Memoized so the Explorer's query effect is stable.
+  const explorerQuery = useMemo(() => {
+    if (!config) return null;
+    if (serverUrl) return serverPolicySource(serverUrl, config);
+    if (weights) return localPolicySource(weights, config);
+    return null;
+  }, [config, serverUrl, weights]);
 
   // "Inspect in Policy Explorer" from the live game: capture the chosen seat's
   // ACTUAL dealt hand + the full bid/challenge history so far, and pre-load the
   // Explorer with it, viewing the trajectory from that seat's perspective. Every
-  // seat is inspectable (the human's own, and each AI opponent). Only available in
-  // server mode (the Explorer queries the connected server's /move).
+  // seat is inspectable (the human's own, and each AI opponent), in both
+  // backends — the Explorer evaluates through explorerQuery.
   const handleInspect = useCallback((seat: number) => {
-    if (!gameState || !config || !serverUrl) return;
+    if (!gameState || !config || !(serverUrl || weights)) return;
     const handCounts = handToCounts(gameState.hands[seat], config.num_digits);
     const sequence = history.map(h => h.action);
     setExplorerInit({ actingSeat: seat, handCounts, sequence });
     setExplorerLabel(`from current game · P${seat}`);
     setExplorerReturn('game');
     setPhase('explorer');
-  }, [gameState, config, serverUrl, history]);
+  }, [gameState, config, serverUrl, weights, history]);
 
   const applyPlayerAction = useCallback(
     (action: number, policy?: number[]) => {
@@ -209,12 +224,12 @@ export default function App() {
     );
   }
 
-  if (phase === 'explorer' && config && serverUrl) {
+  if (phase === 'explorer' && config && explorerQuery) {
     return (
       <PolicyExplorer
         config={config}
-        serverUrl={serverUrl}
-        serverLabel={explorerLabel}
+        query={explorerQuery}
+        agentLabel={explorerLabel}
         initial={explorerInit}
         backLabel={explorerReturn === 'game' ? 'Back to game' : 'Back'}
         onBack={() => setPhase(explorerReturn)}
@@ -238,7 +253,7 @@ export default function App() {
         policyThreshold={policyThreshold}
         onPolicyThresholdChange={setPolicyThreshold}
         onAction={handleHumanAction}
-        onInspect={serverUrl ? handleInspect : undefined}
+        onInspect={handleInspect}
         onReplay={() => startGame(config, weights, humanPlayer, serverUrl)}
         onNewCheckpoint={() => {
           setPhase('upload');

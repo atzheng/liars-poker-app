@@ -246,21 +246,106 @@ export function dealGame(config: GameConfig): GameState {
 // Observation tensor (mirrors observation_tensor in liars_poker_jax.py)
 // ---------------------------------------------------------------------------
 
+/** Length of the compact history block: 3*num_digits + num_players + 5. */
+export function compactHistorySize(config: GameConfig): number {
+  return 3 * config.num_digits + config.num_players + 5;
+}
+
+/**
+ * Dense structured summary of the bid/challenge history from `player`'s point
+ * of view — a 1:1 port of `_compact_history` in liars_poker_jax.py. Pieces
+ * (D = num_digits, P = num_players, TC = total_cards):
+ *   1. has_bid                                  [1]
+ *   2. current-bid count, normalized (/TC)      [1]
+ *   3. current-bid number one-hot               [D]
+ *   4. bid_originator relative-to-me one-hot    [P]
+ *   5. num_challenges normalized (/P)           [1]
+ *   6. is_rebid                                 [1]
+ *   7. bidding depth (current_bid_action+1)/(max_bids+1)  [1]
+ *   8. per-digit highest count ever bid (/TC)   [D]
+ *   9. per-digit challenged flag                [D]
+ */
+export function buildCompactHistory(
+  state: GameState,
+  player: number,
+  config: GameConfig,
+): number[] {
+  const { num_digits: D, num_players: P, total_cards: TC, max_bids } = config;
+  const out: number[] = [];
+
+  const hasBid = state.current_bid_action >= 0;
+  const bidId = hasBid ? state.current_bid_action - BID_ACTION_OFFSET : 0;
+  const { count: curCount, number: curNumber } = decodeBid(bidId, config);
+
+  // 1–2. has_bid, current-bid count
+  out.push(hasBid ? 1 : 0);
+  out.push(hasBid ? curCount / TC : 0);
+
+  // 3. current-bid number one-hot
+  for (let n = 1; n <= D; n++) out.push(hasBid && n === curNumber ? 1 : 0);
+
+  // 4. bid originator, relative to the observer (JAX uses floor-mod, so keep
+  // the result non-negative even for the bid_originator = -1 sentinel).
+  const rel = ((state.bid_originator - player) % P + P) % P;
+  for (let i = 0; i < P; i++) out.push(hasBid && i === rel ? 1 : 0);
+
+  // 5–7. num_challenges, is_rebid, bidding depth
+  out.push(state.num_challenges / P);
+  out.push(state.is_rebid ? 1 : 0);
+  out.push(hasBid ? (state.current_bid_action + 1) / (max_bids + 1) : 0);
+
+  // 8–9. per-digit highest count ever bid by anyone (/TC) and challenged flag.
+  const perDigitMax = new Array<number>(D).fill(0);
+  const perDigitChallenged = new Array<number>(D).fill(0);
+  for (let b = 0; b < max_bids; b++) {
+    const digit = b % D;               // number - 1
+    const count = Math.floor(b / D) + 1;
+    let placed = 0;
+    let challenged = 0;
+    for (let p = 0; p < P; p++) {
+      placed += state.bid_history[b][p];
+      challenged += state.challenge_history[b][p];
+    }
+    if (placed > 0 && count > perDigitMax[digit]) perDigitMax[digit] = count;
+    if (challenged > 0) perDigitChallenged[digit] = 1;
+  }
+  for (let d = 0; d < D; d++) out.push(perDigitMax[d] / TC);
+  for (let d = 0; d < D; d++) out.push(perDigitChallenged[d]);
+
+  return out;
+}
+
 export function buildObservation(
   state: GameState,
   player: number,
   config: GameConfig,
 ): Float32Array {
-  const { num_players, hand_length, max_bids } = config;
+  const { num_players, hand_length, num_digits, max_bids } = config;
+  // Both default to the legacy layout used by pre-histogram checkpoints.
+  const handEncoding = config.handEncoding ?? 'digits';
+  const historyEncoding = config.historyEncoding ?? 'sparse';
   const obs: number[] = [];
 
   // player one-hot [num_players]
   for (let p = 0; p < num_players; p++) obs.push(p === player ? 1 : 0);
 
-  // private hand [hand_length] (zeros during deal)
+  // private hand (zeros during the deal, matching the Python observer which
+  // only fills the hand once dealing is complete)
   const dealingDone = state.deal_step >= config.total_cards;
-  for (let i = 0; i < hand_length; i++) {
-    obs.push(dealingDone ? state.hands[player][i] : 0);
+  if (handEncoding === 'histogram') {
+    // per-digit counts [num_digits]; hands hold 1..num_digits (0 = undealt)
+    const counts = new Array<number>(num_digits).fill(0);
+    if (dealingDone) {
+      for (const d of state.hands[player]) {
+        if (d >= 1 && d <= num_digits) counts[d - 1] += 1;
+      }
+    }
+    for (const c of counts) obs.push(c);
+  } else {
+    // raw dealt digits [hand_length]
+    for (let i = 0; i < hand_length; i++) {
+      obs.push(dealingDone ? state.hands[player][i] : 0);
+    }
   }
 
   // is_rebid [1]
@@ -269,14 +354,18 @@ export function buildObservation(
   // is_terminal [1]
   obs.push(isTerminal(state) ? 1 : 0);
 
-  // bid_history [max_bids * num_players] — raveled row-major
-  for (let b = 0; b < max_bids; b++) {
-    for (let p = 0; p < num_players; p++) obs.push(state.bid_history[b][p]);
-  }
+  if (historyEncoding === 'compact') {
+    for (const v of buildCompactHistory(state, player, config)) obs.push(v);
+  } else {
+    // bid_history [max_bids * num_players] — raveled row-major
+    for (let b = 0; b < max_bids; b++) {
+      for (let p = 0; p < num_players; p++) obs.push(state.bid_history[b][p]);
+    }
 
-  // challenge_history [max_bids * num_players]
-  for (let b = 0; b < max_bids; b++) {
-    for (let p = 0; p < num_players; p++) obs.push(state.challenge_history[b][p]);
+    // challenge_history [max_bids * num_players]
+    for (let b = 0; b < max_bids; b++) {
+      for (let p = 0; p < num_players; p++) obs.push(state.challenge_history[b][p]);
+    }
   }
 
   return new Float32Array(obs);

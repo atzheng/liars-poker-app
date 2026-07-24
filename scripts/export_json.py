@@ -109,13 +109,16 @@ def arrays_to_lists(obj):
 
 def export(state: dict, out_path: str) -> None:
     layers = state['policy_network_layers']
-    num_hidden = len(layers)
+    if isinstance(layers, dict):  # msgpack turns lists into {'0': n, ...}
+        layers = [layers[k] for k in sorted(layers, key=int)]
 
     params = state['params_target']['params']
+    # Export EVERY Dense layer, not just the hidden ones + a flat logit head:
+    # a factored_mlp head is three Dense layers (query, key-hidden, key-out)
+    # and the value head follows it, and the app decides which to use from
+    # `network_type`.
     params_out = {}
-    for i in range(num_hidden + 1):  # +1 for logit head
-        key = f'Dense_{i}'
-        layer = params[key]
+    for key, layer in params.items():
         params_out[key] = {
             'kernel': arrays_to_lists(layer['kernel']),
             'bias':   arrays_to_lists(layer['bias']),
@@ -131,6 +134,14 @@ def export(state: dict, out_path: str) -> None:
         'policy_network_layers': [int(x) for x in layers],
         'params_target': params_out,
     }
+    # Observation/architecture metadata (absent in pre-2026 checkpoints — the
+    # app then falls back to the legacy flat-MLP / raw-digit / sparse layout).
+    if jax_cfg.get('max_jump') is not None:
+        out['jax_config']['max_jump'] = int(jax_cfg['max_jump'])
+    if state.get('network_type'):
+        out['network_type'] = str(state['network_type'])
+    if state.get('history_encoding'):
+        out['history_encoding'] = str(state['history_encoding'])
 
     with open(out_path, 'w') as f:
         json.dump(out, f)
