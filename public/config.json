@@ -1,0 +1,4 @@
+{
+  "serverUrl": "http://74.208.113.23:8443",
+  "checkpointPath": "s3://research/liars-poker/checkpoints/factored-8x10x3-nashpg-mag05/agent_2000000.msgpack"
+}

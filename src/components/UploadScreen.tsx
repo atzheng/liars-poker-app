@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadCheckpointBytes, loadCheckpointJson, buildGameConfig } from '../checkpoint';
 import type { CheckpointData } from '../checkpoint';
 import type { GameConfig } from '../types';
 import { fetchServerConfig, fetchCheckpoints, loadServerCheckpoint } from '../serverAgent';
 import type { ServerInfo } from '../serverAgent';
+import { loadConfig } from '../config';
 
 const BUILT_IN_AGENTS: { name: string; description: string; path: string }[] = [
   { name: '3×3', description: '3 players · 3 cards', path: '/agents/3x3.msgpack' },
@@ -67,6 +68,23 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   // Checkpoint path typed/pasted into the server picker (full path or s3://).
   const [ckptInput, setCkptInput] = useState('');
+  // Default checkpoint path from config.json — offered as a fallback prefill
+  // when the connected server has no checkpoint loaded yet.
+  const defaultCkptRef = useRef('');
+
+  // Prefill the server URL + checkpoint path from the runtime config file.
+  // Runs once at mount, before the user has interacted, so it never clobbers
+  // a value the user has typed.
+  useEffect(() => {
+    let cancelled = false;
+    loadConfig().then(cfg => {
+      if (cancelled) return;
+      defaultCkptRef.current = cfg.checkpointPath;
+      setServerUrl(cfg.serverUrl);
+      setCkptInput(cfg.checkpointPath);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleConnect = useCallback(async () => {
     setLoading(true);
@@ -83,8 +101,9 @@ export default function UploadScreen({ onLoad, onConnectServer, onOpenExplorer }
         browseDir = cp.dir ?? browseDir;
       } catch { /* listing optional */ }
       // Prefill the path box with the already-loaded checkpoint (if any) so the
-      // user can see/edit it; otherwise leave it blank to paste one.
-      setCkptInput(info.checkpointPath ?? '');
+      // user can see/edit it; otherwise fall back to the config.json default so
+      // the user can Load it with one click (blank if neither is set).
+      setCkptInput(info.checkpointPath ?? defaultCkptRef.current ?? '');
       setParsed({
         data: null,
         serverUrl,
