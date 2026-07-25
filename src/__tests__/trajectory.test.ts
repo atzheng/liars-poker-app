@@ -13,6 +13,7 @@ import {
   expandHand,
   handToCounts,
   moveLabel,
+  resolveHand,
   sanitizeSequence,
 } from '../trajectory';
 import { CHALLENGE_ACTION, encodeBid, isTerminal, legalActionsMask } from '../game';
@@ -38,12 +39,28 @@ describe('hand helpers', () => {
   it('handToCounts ignores out-of-range/undealt slots', () => {
     expect(handToCounts([1, 1, 3, 0], 3)).toEqual([2, 0, 1]);
   });
+
+  it('resolveHand keeps the seeded ORDER while the counts still match it', () => {
+    // A legacy checkpoint observes the raw digit order, so replaying a live
+    // game must reproduce the hand exactly as dealt, not sorted.
+    const dealt = [2, 1, 3];
+    const counts = handToCounts(dealt, 3);
+    expect(resolveHand(counts, 3, dealt)).toEqual(dealt);
+    expect(expandHand(counts, 3)).toEqual([1, 2, 3]);  // sorted, order lost
+  });
+
+  it('resolveHand falls back to sorted expansion once the hand is edited', () => {
+    const dealt = [2, 1, 3];
+    const edited = [0, 2, 1];  // swapped a 1 for a 2 in the editor
+    expect(resolveHand(edited, 3, dealt)).toEqual([2, 2, 3]);
+    expect(resolveHand([1, 1, 1], 3, undefined)).toEqual([1, 2, 3]);
+  });
 });
 
 describe('buildState / buildInitialState', () => {
   it('post-deal initial state injects acting hand and marks dealing done', () => {
     const cfg = makeConfig();
-    const s = buildInitialState(cfg, 1, [0, 3, 0]); // P1 holds three 2s
+    const s = buildInitialState(cfg, 1, [2, 2, 2]); // P1 holds three 2s
     expect(s.deal_step).toBe(cfg.total_cards);
     expect(s.current_player).toBe(0); // P0 opens
     expect(s.hands[1]).toEqual([2, 2, 2]);
@@ -55,12 +72,12 @@ describe('buildState / buildInitialState', () => {
     const bidA = encodeBid(1, 2, cfg) + 1; // 1 × 2
     const bidB = encodeBid(2, 3, cfg) + 1; // 2 × 3
     const seq = [bidA, bidB];
-    const s0 = buildState(cfg, seq, 0, [3, 0, 0], 0);
+    const s0 = buildState(cfg, seq, 0, [1, 1, 1], 0);
     expect(s0.current_player).toBe(0);
-    const s1 = buildState(cfg, seq, 0, [3, 0, 0], 1);
+    const s1 = buildState(cfg, seq, 0, [1, 1, 1], 1);
     expect(s1.current_player).toBe(1);
     expect(s1.current_bid_action).toBe(bidA);
-    const s2 = buildState(cfg, seq, 0, [3, 0, 0]);
+    const s2 = buildState(cfg, seq, 0, [1, 1, 1]);
     expect(s2.current_player).toBe(0);
     expect(s2.current_bid_action).toBe(bidB);
   });
@@ -69,7 +86,7 @@ describe('buildState / buildInitialState', () => {
 describe('buildTrajectory', () => {
   it('opening decision only when the sequence is empty', () => {
     const cfg = makeConfig();
-    const t = buildTrajectory(cfg, [], 0, [3, 0, 0]);
+    const t = buildTrajectory(cfg, [], 0, [1, 1, 1]);
     expect(t.terminalState).toBeNull();
     const decisions = t.nodes.filter(n => n.isActing);
     expect(decisions.length).toBe(1);
@@ -82,7 +99,7 @@ describe('buildTrajectory', () => {
     const bidA = encodeBid(1, 1, cfg) + 1;
     const bidB = encodeBid(1, 2, cfg) + 1;
     // P0 opens (bidA), P1 raises (bidB); acting seat = P1.
-    const t = buildTrajectory(cfg, [bidA, bidB], 1, [0, 3, 0]);
+    const t = buildTrajectory(cfg, [bidA, bidB], 1, [2, 2, 2]);
     expect(t.nodes.length).toBe(3); // prefixes 0,1,2
     expect(t.nodes[0].toMove).toBe(0);
     expect(t.nodes[0].isActing).toBe(false);      // opponent (P0) opening
@@ -99,7 +116,7 @@ describe('buildTrajectory', () => {
     const bidA = encodeBid(6, 1, cfg) + 1; // 6 × 1 — big bid, likely to fail
     // P0 opens huge; P1 challenges; P0 declines to rebid (challenges) → count
     // resolves the game terminal in a 2-player game.
-    const t = buildTrajectory(cfg, [bidA, CHALLENGE_ACTION, CHALLENGE_ACTION], 1, [0, 3, 0]);
+    const t = buildTrajectory(cfg, [bidA, CHALLENGE_ACTION, CHALLENGE_ACTION], 1, [2, 2, 2]);
     expect(t.terminalState).not.toBeNull();
     expect(isTerminal(t.terminalState!)).toBe(true);
     // No node emitted past the terminal.
@@ -113,7 +130,7 @@ describe('sanitizeSequence', () => {
     const bidA = encodeBid(1, 1, cfg) + 1;
     const bidB = encodeBid(2, 1, cfg) + 1;
     const raw = [bidA, bidB];
-    expect(sanitizeSequence(cfg, 0, [3, 0, 0], raw)).toEqual(raw);
+    expect(sanitizeSequence(cfg, 0, [1, 1, 1], raw)).toEqual(raw);
   });
 
   it('drops trailing moves that become illegal', () => {
@@ -121,7 +138,7 @@ describe('sanitizeSequence', () => {
     const low = encodeBid(1, 1, cfg) + 1;
     const high = encodeBid(3, 3, cfg) + 1;
     // After a high bid, a lower bid is illegal (bids strictly increase) → dropped.
-    const kept = sanitizeSequence(cfg, 0, [3, 0, 0], [high, low]);
+    const kept = sanitizeSequence(cfg, 0, [1, 1, 1], [high, low]);
     expect(kept).toEqual([high]);
   });
 });

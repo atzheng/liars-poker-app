@@ -8,7 +8,6 @@ import { localPolicySource, serverPolicySource } from './policySource';
 import UploadScreen from './components/UploadScreen';
 import GameBoard from './components/GameBoard';
 import PolicyExplorer, { type ExplorerInit } from './components/PolicyExplorer';
-import { handToCounts } from './trajectory';
 
 type Phase = 'upload' | 'game' | 'explorer';
 
@@ -118,9 +117,10 @@ export default function App() {
   // backends — the Explorer evaluates through explorerQuery.
   const handleInspect = useCallback((seat: number) => {
     if (!gameState || !config || !(serverUrl || weights)) return;
-    const handCounts = handToCounts(gameState.hands[seat], config.num_digits);
     const sequence = history.map(h => h.action);
-    setExplorerInit({ actingSeat: seat, handCounts, sequence });
+    // Pass the dealt hand as dealt (ordered): the legacy observation encodes the
+    // raw digit order, so the Explorer must replay the exact same hand.
+    setExplorerInit({ actingSeat: seat, hand: [...gameState.hands[seat]], sequence });
     setExplorerLabel(`from current game · P${seat}`);
     setExplorerReturn('game');
     setPhase('explorer');

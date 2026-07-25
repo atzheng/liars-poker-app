@@ -8,10 +8,16 @@
  * unit-tested against the game engine directly.
  *
  * Hands do NOT affect legality or non-terminal transitions — the engine only
- * reads hands when a challenge RESOLVES (terminal). The transformer's
- * observation only reads hands[current_player] (its OWN hand). So we build every
- * state with the acting seat's chosen hand injected and placeholder hands (digit
- * 1) for the other seats; this leaves the acting seat's queried policy exact.
+ * reads hands when a challenge RESOLVES (terminal). The agent's observation only
+ * reads hands[current_player] (its OWN hand). So we build every state with the
+ * acting seat's chosen hand injected and placeholder hands (digit 1) for the
+ * other seats; this leaves the acting seat's queried policy exact.
+ *
+ * These helpers take the acting seat's hand as an ORDERED digit array rather
+ * than per-digit counts: the current observation encodes the hand as a
+ * histogram (order-irrelevant), but the legacy encoding feeds the raw ordered
+ * digits to the network. See resolveHand for how the Explorer's counts editor
+ * maps back onto an ordering.
  */
 
 import type { DecodedBid, GameConfig, GameState } from './types';
@@ -26,8 +32,7 @@ import {
 } from './game';
 
 /** Expand per-digit counts ([count of digit1, ..., count of digitN]) into a hand
- *  array of stored digit values (1-indexed). Order is irrelevant to the
- *  histogram-based model. */
+ *  array of stored digit values (1-indexed), in ascending digit order. */
 export function expandHand(handCounts: number[], handLength: number): number[] {
   const hand: number[] = [];
   handCounts.forEach((c, i) => {
@@ -46,18 +51,41 @@ export function handToCounts(hand: number[], numDigits: number): number[] {
   return counts;
 }
 
+/**
+ * Turn the Explorer's per-digit counts back into an ordered hand.
+ *
+ * `seedHand` is the exact hand the Explorer was opened with (from "Inspect in
+ * Policy Explorer"). While the counts still describe that hand, its ORDER is
+ * preserved — a legacy checkpoint observes the raw ordered digits, so replaying
+ * a live game through the Explorer must feed the network the same ordering the
+ * game did. Once the user edits the hand there is no ordering to preserve, so
+ * the counts are expanded in ascending digit order.
+ */
+export function resolveHand(
+  handCounts: number[],
+  handLength: number,
+  seedHand?: number[],
+): number[] {
+  if (seedHand && seedHand.length === handLength) {
+    const seedCounts = handToCounts(seedHand, handCounts.length);
+    if (seedCounts.every((c, i) => c === handCounts[i])) return [...seedHand];
+  }
+  return expandHand(handCounts, handLength);
+}
+
 /** Post-deal starting state (P0 to open) with the acting seat's hand injected and
- *  placeholder hands (digit 1) for the other seats. */
+ *  placeholder hands (digit 1) for the other seats. `hand` is an ordered digit
+ *  array (see resolveHand). */
 export function buildInitialState(
   config: GameConfig,
   actingSeat: number,
-  handCounts: number[],
+  hand: number[],
 ): GameState {
   let state = newInitialState(config);
   const hands = Array.from({ length: config.num_players }, () =>
     new Array<number>(config.hand_length).fill(1),
   );
-  hands[actingSeat] = expandHand(handCounts, config.hand_length);
+  hands[actingSeat] = hand.slice(0, config.hand_length);
   state = { ...state, hands, deal_step: config.total_cards };
   return state;
 }
@@ -69,10 +97,10 @@ export function buildState(
   config: GameConfig,
   sequence: number[],
   actingSeat: number,
-  handCounts: number[],
+  hand: number[],
   count: number = sequence.length,
 ): GameState {
-  let state = buildInitialState(config, actingSeat, handCounts);
+  let state = buildInitialState(config, actingSeat, hand);
   const n = Math.min(count, sequence.length);
   for (let i = 0; i < n; i++) {
     if (!isPlayerNode(state, config)) break;
@@ -91,10 +119,10 @@ export function buildState(
 export function sanitizeSequence(
   config: GameConfig,
   actingSeat: number,
-  handCounts: number[],
+  hand: number[],
   raw: number[],
 ): number[] {
-  let state = buildInitialState(config, actingSeat, handCounts);
+  let state = buildInitialState(config, actingSeat, hand);
   const out: number[] = [];
   for (const a of raw) {
     if (!isPlayerNode(state, config)) break;
@@ -147,9 +175,9 @@ export function buildTrajectory(
   config: GameConfig,
   sequence: number[],
   actingSeat: number,
-  handCounts: number[],
+  hand: number[],
 ): Trajectory {
-  let state = buildInitialState(config, actingSeat, handCounts);
+  let state = buildInitialState(config, actingSeat, hand);
   const nodes: TimelineNode[] = [];
   const n = sequence.length;
 

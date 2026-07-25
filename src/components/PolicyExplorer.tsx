@@ -30,7 +30,9 @@ import type { PolicySource, PolicyQuery } from '../policySource';
 import {
   buildState,
   buildTrajectory,
+  handToCounts,
   moveLabel,
+  resolveHand,
   sanitizeSequence,
   type TimelineNode,
 } from '../trajectory';
@@ -39,7 +41,8 @@ import PolicyHeatmap from './PolicyHeatmap';
 /** Pre-loaded trajectory captured from a live game (see App.handleInspect). */
 export interface ExplorerInit {
   actingSeat: number;
-  handCounts: number[];  // length num_digits
+  /** The seat's ACTUAL dealt hand, ordered (legacy checkpoints observe order). */
+  hand: number[];        // length hand_length
   sequence: number[];    // bid/challenge action ids, in order
 }
 
@@ -79,8 +82,8 @@ export default function PolicyExplorer({
   const [actingSeat, setActingSeat] = useState(initial?.actingSeat ?? 0);
   // handCounts[d] = how many of digit (d+1) the acting player holds.
   const [handCounts, setHandCounts] = useState<number[]>(() => {
-    if (initial?.handCounts && initial.handCounts.length === num_digits) {
-      return [...initial.handCounts];
+    if (initial?.hand && initial.hand.length === hand_length) {
+      return handToCounts(initial.hand, num_digits);
     }
     const c = new Array<number>(num_digits).fill(0);
     c[0] = hand_length; // default: all of digit 1
@@ -99,16 +102,24 @@ export default function PolicyExplorer({
   const handTotal = handCounts.reduce((a, b) => a + b, 0);
   const handValid = handTotal === hand_length;
 
+  // States are built from an ORDERED hand: while the counts still match the
+  // hand this Explorer was seeded with (the "inspect" flow), keep that exact
+  // ordering, so a legacy raw-digit agent sees what it saw in the live game.
+  const hand = useMemo(
+    () => resolveHand(handCounts, hand_length, initial?.hand),
+    [handCounts, hand_length, initial?.hand],
+  );
+
   // ------------------------------------------------------------------
   // Live trajectory (drives structure immediately, no debounce).
   // ------------------------------------------------------------------
   const trajectory = useMemo(
-    () => buildTrajectory(config, sequence, actingSeat, handCounts),
-    [config, sequence, actingSeat, handCounts],
+    () => buildTrajectory(config, sequence, actingSeat, hand),
+    [config, sequence, actingSeat, hand],
   );
   const finalState = useMemo(
-    () => buildState(config, sequence, actingSeat, handCounts),
-    [config, sequence, actingSeat, handCounts],
+    () => buildState(config, sequence, actingSeat, hand),
+    [config, sequence, actingSeat, hand],
   );
   const finalLegal = useMemo(() => legalActionsMask(finalState, config), [finalState, config]);
 
@@ -116,9 +127,9 @@ export default function PolicyExplorer({
   // Debounced inputs → drive the agent queries.
   // ------------------------------------------------------------------
   const dSeq = useDebounced(sequence, 300);
-  const dHand = useDebounced(handCounts, 300);
+  const dHand = useDebounced(hand, 300);
   const dSeat = useDebounced(actingSeat, 300);
-  const settled = dSeq === sequence && dHand === handCounts && dSeat === actingSeat;
+  const settled = dSeq === sequence && dHand === hand && dSeat === actingSeat;
 
   useEffect(() => {
     if (!handValid) {
@@ -186,19 +197,19 @@ export default function PolicyExplorer({
   const replaceMove = useCallback((i: number, action: number) => {
     setSequence(prev => {
       const raw = [...prev.slice(0, i), action, ...prev.slice(i + 1)];
-      return sanitizeSequence(config, actingSeat, handCounts, raw);
+      return sanitizeSequence(config, actingSeat, hand, raw);
     });
     setEditingIndex(null);
-  }, [config, actingSeat, handCounts]);
+  }, [config, actingSeat, hand]);
 
   // Remove the move at index i, keeping the trailing moves that remain legal.
   const removeMove = useCallback((i: number) => {
     setSequence(prev => {
       const raw = [...prev.slice(0, i), ...prev.slice(i + 1)];
-      return sanitizeSequence(config, actingSeat, handCounts, raw);
+      return sanitizeSequence(config, actingSeat, hand, raw);
     });
     setEditingIndex(null);
-  }, [config, actingSeat, handCounts]);
+  }, [config, actingSeat, hand]);
 
   // ------------------------------------------------------------------
   // Legal-bid grid (rows = count, cols = digit) for a given state's mask.
